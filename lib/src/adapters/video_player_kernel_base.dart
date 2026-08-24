@@ -6,7 +6,7 @@ import 'package:video_player/video_player.dart';
 import '../kernel.dart';
 import '../models.dart';
 
-abstract class VideoPlayerKernelAdapterBase implements VideoKernelAdapter {
+abstract class VideoPlayerKernelAdapterBase extends VideoKernelAdapter {
   VideoPlayerController? _controller;
 
   @override

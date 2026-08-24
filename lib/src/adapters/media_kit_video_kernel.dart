@@ -32,7 +32,7 @@ const VideoKernelDescriptor mediaKitVideoKernelDescriptor =
       knownLimitations: <String>['首版映射基础播放、暂停、跳转、停止、倍速、画面和基础状态；高级轨道选择命令后续补齐。'],
     );
 
-class MediaKitVideoKernelAdapter implements VideoKernelAdapter {
+class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
   MediaKitVideoKernelAdapter({VideoKernelDescriptor? descriptor})
     : _descriptor = descriptor ?? mediaKitVideoKernelDescriptor;
 

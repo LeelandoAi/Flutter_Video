@@ -39,7 +39,7 @@ const VideoKernelDescriptor erikaVideoKernelDescriptor = VideoKernelDescriptor(
   ],
 );
 
-class ErikaVideoKernelAdapter implements VideoKernelAdapter {
+class ErikaVideoKernelAdapter extends VideoKernelAdapter {
   ErikaVideoKernelAdapter({erika.ErikaPlayer? player})
     : _player =
           player ?? erika.ErikaPlayer(outputMode: erika.ErikaOutputMode.auto);

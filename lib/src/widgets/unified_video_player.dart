@@ -322,6 +322,7 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
         return true;
       case UnifiedVideoLifecycle.idle:
       case UnifiedVideoLifecycle.opening:
+      case UnifiedVideoLifecycle.switchingKernel:
       case UnifiedVideoLifecycle.buffering:
       case UnifiedVideoLifecycle.failed:
       case UnifiedVideoLifecycle.disposed:
@@ -582,6 +583,7 @@ class _StateOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (state.lifecycle) {
       case UnifiedVideoLifecycle.opening:
+      case UnifiedVideoLifecycle.switchingKernel:
       case UnifiedVideoLifecycle.buffering:
         final bool buffering =
             state.lifecycle == UnifiedVideoLifecycle.buffering;
@@ -838,6 +840,7 @@ class _CenterTransportLayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (state.lifecycle == UnifiedVideoLifecycle.opening ||
+        state.lifecycle == UnifiedVideoLifecycle.switchingKernel ||
         state.lifecycle == UnifiedVideoLifecycle.buffering ||
         state.lifecycle == UnifiedVideoLifecycle.failed ||
         state.lifecycle == UnifiedVideoLifecycle.disposed) {

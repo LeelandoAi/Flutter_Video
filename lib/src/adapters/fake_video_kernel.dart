@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../kernel.dart';
 import '../models.dart';
 
-class FakeVideoKernelAdapter implements VideoKernelAdapter {
+class FakeVideoKernelAdapter extends VideoKernelAdapter {
   FakeVideoKernelAdapter({
     this.duration = const Duration(minutes: 42),
     VideoKernelDescriptor? descriptor,
@@ -99,6 +99,15 @@ class FakeVideoKernelAdapter implements VideoKernelAdapter {
   }
 
   @override
+  Future<UnifiedVideoState> setVolume(
+    double volume,
+    UnifiedVideoState state,
+  ) async {
+    _ensureReady();
+    return state.copyWith(volume: volume.clamp(0.0, 1.0).toDouble());
+  }
+
+  @override
   Widget buildSurface(BuildContext context, UnifiedVideoState state) {
     final String title = state.source?.metadata.title ?? 'Unified Video';
     return ColoredBox(
@@ -168,10 +177,27 @@ const VideoKernelDescriptor fakeVideoKernelDescriptor = VideoKernelDescriptor(
 );
 
 RegisteredVideoKernel createFakeVideoKernel({
+  String id = 'fake',
+  String displayName = 'Fake 测试内核',
   Duration duration = const Duration(minutes: 42),
+  Set<UnifiedVideoPlatform>? supportedPlatforms,
+  Set<VideoSourceType>? supportedSourceTypes,
 }) {
+  final VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+    id: id,
+    displayName: displayName,
+    supportedPlatforms:
+        supportedPlatforms ?? fakeVideoKernelDescriptor.supportedPlatforms,
+    supportedSourceTypes:
+        supportedSourceTypes ?? fakeVideoKernelDescriptor.supportedSourceTypes,
+    supportsSubtitles: true,
+    supportsTracks: true,
+  );
   return RegisteredVideoKernel(
-    descriptor: fakeVideoKernelDescriptor,
-    create: () => FakeVideoKernelAdapter(duration: duration),
+    descriptor: descriptor,
+    create: () => FakeVideoKernelAdapter(
+      duration: duration,
+      descriptor: descriptor,
+    ),
   );
 }

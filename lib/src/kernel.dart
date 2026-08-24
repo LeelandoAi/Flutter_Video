@@ -79,6 +79,14 @@ class KernelSelection {
 abstract class VideoKernelAdapter {
   VideoKernelDescriptor get descriptor;
 
+  String? get runtimeGroup => null;
+
+  String get runtimeIdentity => descriptor.id;
+
+  Future<void> activateRuntime() async {}
+
+  Future<void> deactivateRuntime() async {}
+
   Future<void> initialize();
 
   Future<UnifiedVideoState> open(VideoSource source, UnifiedVideoState state);
@@ -99,6 +107,11 @@ abstract class VideoKernelAdapter {
     UnifiedVideoFit fit,
     UnifiedVideoState state,
   );
+
+  Future<UnifiedVideoState> setVolume(
+    double volume,
+    UnifiedVideoState state,
+  ) async => state.copyWith(volume: volume);
 
   Widget buildSurface(BuildContext context, UnifiedVideoState state);
 
@@ -134,9 +147,23 @@ class VideoKernelRegistry {
 
   RegisteredVideoKernel? byId(String id) => _kernels[id];
 
+  bool contains(String id) => _kernels.containsKey(id);
+
   void register(RegisteredVideoKernel kernel) {
-    _kernels[kernel.descriptor.id] = kernel;
+    final String id = kernel.descriptor.id;
+    if (_kernels.containsKey(id)) {
+      throw DuplicateVideoKernelException(id);
+    }
+    _kernels[id] = kernel;
   }
+
+  void registerAll(Iterable<RegisteredVideoKernel> kernels) {
+    for (final RegisteredVideoKernel kernel in kernels) {
+      register(kernel);
+    }
+  }
+
+  RegisteredVideoKernel? unregister(String id) => _kernels.remove(id);
 
   List<RegisteredVideoKernel> orderedCandidates(KernelPreference preference) {
     if (preference.preferredKernelIds.isEmpty) {
@@ -187,6 +214,15 @@ class VideoKernelRegistry {
       skippedKernelIds: skipped,
     );
   }
+}
+
+class DuplicateVideoKernelException implements Exception {
+  const DuplicateVideoKernelException(this.kernelId);
+
+  final String kernelId;
+
+  @override
+  String toString() => 'DuplicateVideoKernelException(kernelId: $kernelId)';
 }
 
 class UnsupportedKernelException implements Exception {

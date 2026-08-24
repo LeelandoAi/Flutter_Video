@@ -5,6 +5,7 @@ enum VideoSourceType { file, network, asset, memory }
 enum UnifiedVideoLifecycle {
   idle,
   opening,
+  switchingKernel,
   ready,
   playing,
   paused,
@@ -23,6 +24,8 @@ enum UnifiedVideoErrorCode {
   unsupportedCapability,
   openFailed,
   commandFailed,
+  kernelSwitchFailed,
+  runtimeConflict,
   disposedController,
 }
 
@@ -167,9 +170,12 @@ class UnifiedVideoState {
     this.activeKernelId,
     this.fit = UnifiedVideoFit.contain,
     this.speed = 1.0,
+    this.volume = 1.0,
     this.fullscreen = false,
     this.tracks = const <VideoTrack>[],
     this.error,
+    this.targetKernelId,
+    this.lastKernelSwitchError,
     this.fallbackHistory = const <String>[],
   });
 
@@ -181,9 +187,12 @@ class UnifiedVideoState {
   final String? activeKernelId;
   final UnifiedVideoFit fit;
   final double speed;
+  final double volume;
   final bool fullscreen;
   final List<VideoTrack> tracks;
   final UnifiedVideoError? error;
+  final String? targetKernelId;
+  final UnifiedVideoError? lastKernelSwitchError;
   final List<String> fallbackHistory;
 
   bool get isPlaying => lifecycle == UnifiedVideoLifecycle.playing;
@@ -200,10 +209,15 @@ class UnifiedVideoState {
     bool clearActiveKernelId = false,
     UnifiedVideoFit? fit,
     double? speed,
+    double? volume,
     bool? fullscreen,
     List<VideoTrack>? tracks,
     UnifiedVideoError? error,
     bool clearError = false,
+    String? targetKernelId,
+    bool clearTargetKernelId = false,
+    UnifiedVideoError? lastKernelSwitchError,
+    bool clearLastKernelSwitchError = false,
     List<String>? fallbackHistory,
   }) {
     return UnifiedVideoState(
@@ -217,9 +231,16 @@ class UnifiedVideoState {
           : activeKernelId ?? this.activeKernelId,
       fit: fit ?? this.fit,
       speed: speed ?? this.speed,
+      volume: volume ?? this.volume,
       fullscreen: fullscreen ?? this.fullscreen,
       tracks: tracks ?? this.tracks,
       error: clearError ? null : error ?? this.error,
+      targetKernelId: clearTargetKernelId
+          ? null
+          : targetKernelId ?? this.targetKernelId,
+      lastKernelSwitchError: clearLastKernelSwitchError
+          ? null
+          : lastKernelSwitchError ?? this.lastKernelSwitchError,
       fallbackHistory: fallbackHistory ?? this.fallbackHistory,
     );
   }
