@@ -14,7 +14,12 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     this.stateRefreshInterval = const Duration(milliseconds: 300),
     UnifiedVideoState initialState = const UnifiedVideoState(),
   }) : _platform = platform ?? currentUnifiedVideoPlatform(),
-       super(initialState);
+       super(initialState) {
+    UnifiedVideoFullscreenPlatform.ensureChangeHandlerInitialized();
+    UnifiedVideoFullscreenPlatform.changes.addListener(
+      _handleNativeFullscreenChanged,
+    );
+  }
 
   final VideoKernelRegistry registry;
   final UnifiedVideoPlatform _platform;
@@ -30,6 +35,34 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
   VideoKernelAdapter? get activeAdapter => _adapter;
 
   UnifiedVideoPlatform get platform => _platform;
+
+  void claimFullscreenOwnership() {
+    UnifiedVideoFullscreenPlatform.claimFullscreenOwnership(this);
+  }
+
+  void claimFullscreenOwnershipIfUnclaimed() {
+    UnifiedVideoFullscreenPlatform.claimFullscreenOwnershipIfUnclaimed(this);
+  }
+
+  void releaseFullscreenOwnership() {
+    UnifiedVideoFullscreenPlatform.releaseFullscreenOwnership(this);
+  }
+
+  void _handleNativeFullscreenChanged() {
+    if (_disposed ||
+        (_platform != UnifiedVideoPlatform.macos &&
+            _platform != UnifiedVideoPlatform.windows &&
+            _platform != UnifiedVideoPlatform.linux)) {
+      return;
+    }
+    final bool? fullscreen = UnifiedVideoFullscreenPlatform.changes.value;
+    if (fullscreen == null ||
+        fullscreen == value.fullscreen ||
+        !UnifiedVideoFullscreenPlatform.isFullscreenOwner(this)) {
+      return;
+    }
+    value = value.copyWith(fullscreen: fullscreen, clearError: true);
+  }
 
   Future<void> open(VideoSource source, {KernelPreference? preference}) async {
     _ensureActive();
@@ -176,6 +209,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
 
   Future<void> enterFullscreen({bool syncPlatform = true}) async {
     _ensureActive();
+    claimFullscreenOwnership();
     value = value.copyWith(fullscreen: true, clearError: true);
     if (syncPlatform) {
       await UnifiedVideoFullscreenPlatform.enter(_platform);
@@ -351,6 +385,10 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
       return;
     }
     _disposed = true;
+    releaseFullscreenOwnership();
+    UnifiedVideoFullscreenPlatform.changes.removeListener(
+      _handleNativeFullscreenChanged,
+    );
     _stopStateRefresh();
     _adapter?.dispose();
     value = value.copyWith(

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../controller.dart';
@@ -31,125 +30,171 @@ class UnifiedVideoPlayer extends StatefulWidget {
 }
 
 class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
-  bool _fullscreenRouteOpen = false;
+  final OverlayPortalController _fullscreenPortal = OverlayPortalController();
+  final GlobalKey _playerViewKey = GlobalKey(
+    debugLabel: 'unified-video-player-view',
+  );
+  bool _fullscreenOverlayVisible = false;
+  bool _fullscreenTransitioning = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.claimFullscreenOwnershipIfUnclaimed();
+    widget.controller.addListener(_handleControllerFullscreenChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant UnifiedVideoPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleControllerFullscreenChanged);
+      oldWidget.controller.releaseFullscreenOwnership();
+      widget.controller.claimFullscreenOwnershipIfUnclaimed();
+      widget.controller.addListener(_handleControllerFullscreenChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleControllerFullscreenChanged);
+    widget.controller.releaseFullscreenOwnership();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return _UnifiedVideoPlayerView(
+    return PopScope(
+      canPop: !_fullscreenOverlayVisible,
+      onPopInvokedWithResult: (bool didPop, Object? result) {
+        if (!didPop && _fullscreenOverlayVisible) {
+          _ignorePlaybackError(_toggleFullscreen);
+        }
+      },
+      child: OverlayPortal(
+        controller: _fullscreenPortal,
+        overlayChildBuilder: (BuildContext context) {
+          return Positioned.fill(
+            child: ColoredBox(
+              color: Colors.black,
+              child: _buildPlayerView(expand: true),
+            ),
+          );
+        },
+        child: _fullscreenOverlayVisible
+            ? AspectRatio(
+                aspectRatio: widget.aspectRatio,
+                child: const ColoredBox(color: Colors.black),
+              )
+            : _buildPlayerView(),
+      ),
+    );
+  }
+
+  Widget _buildPlayerView({bool expand = false}) {
+    final Widget playerView = _UnifiedVideoPlayerView(
+      key: _playerViewKey,
       controller: widget.controller,
       onPrevious: widget.onPrevious,
       onNext: widget.onNext,
       onSwitchContent: widget.onSwitchContent,
-      aspectRatio: widget.aspectRatio,
       onFullscreenPressed: _toggleFullscreen,
       autoHideControlsDelay: widget.autoHideControlsDelay,
     );
+    if (expand) {
+      return SizedBox.expand(child: playerView);
+    }
+    return ValueListenableBuilder<UnifiedVideoState>(
+      valueListenable: widget.controller,
+      builder: (BuildContext context, UnifiedVideoState state, Widget? child) {
+        return AspectRatio(
+          aspectRatio: _playerAspectRatio(widget.aspectRatio, state.fit),
+          child: child,
+        );
+      },
+      child: playerView,
+    );
+  }
+
+  void _handleControllerFullscreenChanged() {
+    if (!mounted || _fullscreenTransitioning) {
+      return;
+    }
+    final bool fullscreen = widget.controller.value.fullscreen;
+    if (fullscreen == _fullscreenOverlayVisible) {
+      return;
+    }
+    if (fullscreen) {
+      setState(() => _fullscreenOverlayVisible = true);
+      _fullscreenPortal.show();
+    } else {
+      _fullscreenPortal.hide();
+      setState(() => _fullscreenOverlayVisible = false);
+    }
   }
 
   Future<void> _toggleFullscreen() async {
-    final UnifiedVideoState state = widget.controller.value;
-    if (state.fullscreen) {
-      if (_fullscreenRouteOpen && mounted) {
-        Navigator.of(context).maybePop();
-        return;
+    if (_fullscreenTransitioning) {
+      return;
+    }
+    _fullscreenTransitioning = true;
+    try {
+      if (_fullscreenOverlayVisible || widget.controller.value.fullscreen) {
+        await _exitFullscreen();
+      } else {
+        await _enterFullscreen();
       }
-      await widget.controller.exitFullscreen();
-      return;
+    } finally {
+      _fullscreenTransitioning = false;
     }
+  }
 
-    if (!_usesFullscreenRoute(widget.controller.platform)) {
-      await widget.controller.enterFullscreen();
-      return;
-    }
-    if (_fullscreenRouteOpen || !mounted) {
-      return;
-    }
-
-    final NavigatorState navigator = Navigator.of(context);
+  Future<void> _enterFullscreen() async {
     await widget.controller.enterFullscreen(syncPlatform: false);
     if (!mounted) {
       return;
     }
-    _fullscreenRouteOpen = true;
+    setState(() => _fullscreenOverlayVisible = true);
+    _fullscreenPortal.show();
+    await WidgetsBinding.instance.endOfFrame;
     try {
-      await navigator.push<void>(
-        _FullscreenVideoRoute(
-          child: _FullscreenVideoPage(
-            controller: widget.controller,
-            onPrevious: widget.onPrevious,
-            onNext: widget.onNext,
-            onSwitchContent: widget.onSwitchContent,
-            autoHideControlsDelay: widget.autoHideControlsDelay,
-          ),
-        ),
-      );
-    } finally {
-      _fullscreenRouteOpen = false;
-      if (mounted && widget.controller.value.fullscreen) {
-        await widget.controller.exitFullscreen(syncPlatform: false);
-        await widget.controller.syncFullscreenPlatform();
+      await widget.controller.syncFullscreenPlatform();
+    } catch (_) {
+      await widget.controller.exitFullscreen(syncPlatform: false);
+      if (mounted) {
+        _fullscreenPortal.hide();
+        setState(() => _fullscreenOverlayVisible = false);
       }
+      rethrow;
     }
   }
 
-  bool _usesFullscreenRoute(UnifiedVideoPlatform platform) {
-    return !kIsWeb &&
-        (platform == UnifiedVideoPlatform.android ||
-            platform == UnifiedVideoPlatform.ios ||
-            platform == UnifiedVideoPlatform.windows ||
-            platform == UnifiedVideoPlatform.macos ||
-            platform == UnifiedVideoPlatform.linux);
+  Future<void> _exitFullscreen() async {
+    await widget.controller.exitFullscreen(syncPlatform: false);
+    try {
+      await widget.controller.syncFullscreenPlatform();
+    } catch (_) {
+      await widget.controller.enterFullscreen(syncPlatform: false);
+      rethrow;
+    }
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) {
+      return;
+    }
+    _fullscreenPortal.hide();
+    setState(() => _fullscreenOverlayVisible = false);
   }
 }
 
-class _FullscreenVideoRoute extends PageRouteBuilder<void> {
-  _FullscreenVideoRoute({required Widget child})
-    : super(
-        opaque: true,
-        barrierColor: Colors.black,
-        transitionDuration: _fullscreenEnterAnimationDuration,
-        reverseTransitionDuration: _fullscreenExitAnimationDuration,
-        pageBuilder:
-            (
-              BuildContext context,
-              Animation<double> animation,
-              Animation<double> secondaryAnimation,
-            ) => child,
-        transitionsBuilder:
-            (
-              BuildContext context,
-              Animation<double> animation,
-              Animation<double> secondaryAnimation,
-              Widget child,
-            ) {
-              final CurvedAnimation curved = CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOut,
-                reverseCurve: Curves.easeIn,
-              );
-              return FadeTransition(
-                opacity: Tween<double>(begin: 0.0, end: 1.0).animate(curved),
-                child: child,
-              );
-            },
-      );
-}
-
-const Duration _fullscreenEnterAnimationDuration = Duration(milliseconds: 120);
-const Duration _fullscreenExitAnimationDuration = Duration(milliseconds: 120);
-const Duration _fullscreenContentFadeDuration = Duration(milliseconds: 160);
-const Duration _fullscreenPlatformSettleDuration = Duration(milliseconds: 120);
-
 class _UnifiedVideoPlayerView extends StatefulWidget {
   const _UnifiedVideoPlayerView({
+    super.key,
     required this.controller,
     required this.onPrevious,
     required this.onNext,
     required this.onSwitchContent,
     required this.onFullscreenPressed,
     required this.autoHideControlsDelay,
-    this.aspectRatio = 16 / 9,
-    this.expand = false,
   });
 
   final UnifiedVideoController controller;
@@ -158,8 +203,6 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
   final VoidCallback? onSwitchContent;
   final Future<void> Function() onFullscreenPressed;
   final Duration autoHideControlsDelay;
-  final double aspectRatio;
-  final bool expand;
 
   @override
   State<_UnifiedVideoPlayerView> createState() =>
@@ -207,12 +250,16 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
 
   void _handlePlaybackStateChanged() {
     final UnifiedVideoState state = widget.controller.value;
+    final UnifiedVideoLifecycle? previousLifecycle = _lastLifecycle;
+    final bool lifecycleChanged = state.lifecycle != previousLifecycle;
     final bool reachedEnded =
         state.lifecycle == UnifiedVideoLifecycle.ended &&
-        _lastLifecycle != UnifiedVideoLifecycle.ended;
+        previousLifecycle != UnifiedVideoLifecycle.ended;
     _lastLifecycle = state.lifecycle;
     if (reachedEnded && mounted && !_controlsVisible) {
       setState(() => _controlsVisible = true);
+      _scheduleAutoHideIfNeeded();
+      return;
     }
     if (!_canAutoHide(state)) {
       _hideControlsTimer?.cancel();
@@ -221,7 +268,7 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
       }
       return;
     }
-    if (_controlsVisible) {
+    if (lifecycleChanged && _controlsVisible) {
       _scheduleAutoHideIfNeeded();
     }
   }
@@ -231,6 +278,7 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
   }
 
   void _showControls() {
+    widget.controller.claimFullscreenOwnership();
     if (mounted && !_controlsVisible) {
       setState(() => _controlsVisible = true);
     }
@@ -407,29 +455,9 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
             ),
           ),
         );
-        if (widget.expand) {
-          return SizedBox.expand(child: player);
-        }
-        return AspectRatio(
-          aspectRatio: _aspectRatioFor(state.fit),
-          child: player,
-        );
+        return player;
       },
     );
-  }
-
-  double _aspectRatioFor(UnifiedVideoFit fit) {
-    switch (fit) {
-      case UnifiedVideoFit.original:
-      case UnifiedVideoFit.contain:
-      case UnifiedVideoFit.cover:
-      case UnifiedVideoFit.fill:
-        return widget.aspectRatio;
-      case UnifiedVideoFit.ratio16x9:
-        return 16 / 9;
-      case UnifiedVideoFit.ratio4x3:
-        return 4 / 3;
-    }
   }
 
   Future<void> _retryCurrentSource() async {
@@ -504,96 +532,6 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
   }
 }
 
-class _FullscreenVideoPage extends StatefulWidget {
-  const _FullscreenVideoPage({
-    required this.controller,
-    required this.onPrevious,
-    required this.onNext,
-    required this.onSwitchContent,
-    required this.autoHideControlsDelay,
-  });
-
-  final UnifiedVideoController controller;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onNext;
-  final VoidCallback? onSwitchContent;
-  final Duration autoHideControlsDelay;
-
-  @override
-  State<_FullscreenVideoPage> createState() => _FullscreenVideoPageState();
-}
-
-class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
-  bool _contentVisible = false;
-  bool _closing = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _enterFullscreenSurface();
-  }
-
-  Future<void> _enterFullscreenSurface() async {
-    await Future<void>.delayed(_fullscreenEnterAnimationDuration);
-    if (!mounted || !widget.controller.value.fullscreen) {
-      return;
-    }
-    await widget.controller.syncFullscreenPlatform();
-    await Future<void>.delayed(_fullscreenPlatformSettleDuration);
-    if (mounted && widget.controller.value.fullscreen) {
-      setState(() => _contentVisible = true);
-    }
-  }
-
-  Future<void> _closeFullscreenSurface() async {
-    if (_closing) {
-      return;
-    }
-    _closing = true;
-    if (mounted) {
-      setState(() => _contentVisible = false);
-    }
-    await Future<void>.delayed(_fullscreenContentFadeDuration);
-    await widget.controller.exitFullscreen(syncPlatform: false);
-    await widget.controller.syncFullscreenPlatform();
-    await Future<void>.delayed(_fullscreenPlatformSettleDuration);
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (bool didPop, Object? result) {
-        if (!didPop) {
-          _ignorePlaybackError(_closeFullscreenSurface);
-        }
-      },
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: AnimatedOpacity(
-          opacity: _contentVisible ? 1 : 0,
-          duration: _fullscreenContentFadeDuration,
-          curve: Curves.easeOut,
-          child: _UnifiedVideoPlayerView(
-            controller: widget.controller,
-            onPrevious: widget.onPrevious,
-            onNext: widget.onNext,
-            onSwitchContent: widget.onSwitchContent,
-            autoHideControlsDelay: widget.autoHideControlsDelay,
-            onFullscreenPressed: () async {
-              await _closeFullscreenSurface();
-            },
-            expand: true,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _VideoSurface extends StatelessWidget {
   const _VideoSurface({required this.controller, required this.state});
 
@@ -645,8 +583,40 @@ class _StateOverlay extends StatelessWidget {
     switch (state.lifecycle) {
       case UnifiedVideoLifecycle.opening:
       case UnifiedVideoLifecycle.buffering:
-        return const Center(
-          child: CircularProgressIndicator(color: Colors.white),
+        final bool buffering =
+            state.lifecycle == UnifiedVideoLifecycle.buffering;
+        return IgnorePointer(
+          child: ColoredBox(
+            color: Colors.black.withValues(alpha: 0.32),
+            child: Center(
+              child: Semantics(
+                liveRegion: true,
+                label: buffering ? '正在缓冲' : '正在加载视频',
+                child: Column(
+                  key: const ValueKey<String>('video-loading-indicator'),
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const SizedBox.square(
+                      dimension: 30,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.5,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      buffering ? '正在缓冲' : '正在加载视频',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         );
       case UnifiedVideoLifecycle.failed:
         return Center(
@@ -1962,6 +1932,20 @@ String _formatDuration(Duration duration) {
         '${seconds.toString().padLeft(2, '0')}';
   }
   return '$minutes:${seconds.toString().padLeft(2, '0')}';
+}
+
+double _playerAspectRatio(double fallback, UnifiedVideoFit fit) {
+  switch (fit) {
+    case UnifiedVideoFit.original:
+    case UnifiedVideoFit.contain:
+    case UnifiedVideoFit.cover:
+    case UnifiedVideoFit.fill:
+      return fallback;
+    case UnifiedVideoFit.ratio16x9:
+      return 16 / 9;
+    case UnifiedVideoFit.ratio4x3:
+      return 4 / 3;
+  }
 }
 
 Future<void> _playOrReplay(

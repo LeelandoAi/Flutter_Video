@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_video/flutter_video.dart';
 
@@ -9,12 +12,13 @@ void main() {
     VoidCallback? onNext,
     VoidCallback? onSwitchContent,
     Duration autoHideControlsDelay = const Duration(seconds: 3),
+    UnifiedVideoPlatform platform = UnifiedVideoPlatform.android,
   }) async {
     final UnifiedVideoController controller = UnifiedVideoController(
       registry: VideoKernelRegistry(
         kernels: <RegisteredVideoKernel>[createFakeVideoKernel()],
       ),
-      platform: UnifiedVideoPlatform.android,
+      platform: platform,
       stateRefreshInterval: null,
     );
     await controller.open(
@@ -137,6 +141,50 @@ void main() {
     expect(_controlsOverlay(tester).opacity, 1);
   });
 
+  testWidgets('播放状态刷新不会阻止控件自动隐藏', (WidgetTester tester) async {
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'refreshing',
+      displayName: '刷新测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final UnifiedVideoController controller = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(
+            descriptor: descriptor,
+            create: () => _RefreshingSnapshotVideoKernelAdapter(descriptor),
+          ),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.android,
+      stateRefreshInterval: const Duration(milliseconds: 50),
+    );
+    await controller.open(VideoSource.network(sampleMp4Url));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: UnifiedVideoPlayer(
+            controller: controller,
+            autoHideControlsDelay: const Duration(milliseconds: 200),
+          ),
+        ),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.play();
+    await tester.pump();
+    expect(_controlsOverlay(tester).opacity, 1);
+
+    await tester.pump(const Duration(milliseconds: 260));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(_controlsOverlay(tester).opacity, 0);
+
+    controller.dispose();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('播放结束后不显示单独重播按钮，点击播放按钮从头播放', (WidgetTester tester) async {
     final UnifiedVideoController controller = await pumpPlayer(tester);
     controller.value = controller.value.copyWith(
@@ -181,6 +229,322 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));
     await tester.pumpAndSettle();
     expect(controller.value.fullscreen, isTrue);
+  });
+
+  testWidgets('全屏切换复用同一个播放器 Surface，不创建第二套播放器 View', (
+    WidgetTester tester,
+  ) async {
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.unknown,
+    );
+    final Element embeddedSurface = tester.element(
+      find.byKey(const ValueKey<String>('fake-video-title')),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('fake-video-title')),
+      findsOneWidget,
+    );
+    expect(
+      tester.element(find.byKey(const ValueKey<String>('fake-video-title'))),
+      same(embeddedSurface),
+    );
+    expect(
+      find.byWidgetPredicate(
+        (Widget widget) =>
+            widget.runtimeType.toString() == '_FullscreenVideoPage',
+      ),
+      findsNothing,
+    );
+    expect(controller.value.fullscreen, isTrue);
+
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('fake-video-title')),
+      findsOneWidget,
+    );
+    expect(
+      tester.element(find.byKey(const ValueKey<String>('fake-video-title'))),
+      same(embeddedSurface),
+    );
+    expect(controller.value.fullscreen, isFalse);
+  });
+
+  testWidgets('平台全屏失败时回滚播放器全屏状态和 Overlay', (WidgetTester tester) async {
+    const MethodChannel channel = MethodChannel('flutter_video/fullscreen');
+    final TestDefaultBinaryMessenger messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+      if (call.method == 'enter') {
+        throw PlatformException(
+          code: 'fullscreen_transition_failed',
+          message: '模拟系统全屏失败',
+        );
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.macos,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));
+    await tester.pumpAndSettle();
+
+    expect(controller.value.fullscreen, isFalse);
+    expect(
+      find.byKey(const ValueKey<String>('fake-video-title')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('macOS 原生退出全屏后自动收回播放器 Overlay', (WidgetTester tester) async {
+    const MethodChannel channel = MethodChannel('flutter_video/fullscreen');
+    final TestDefaultBinaryMessenger messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      channel,
+      (MethodCall call) async => null,
+    );
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.macos,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));
+    await tester.pumpAndSettle();
+    expect(controller.value.fullscreen, isTrue);
+
+    await messenger.handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec().encodeMethodCall(
+        const MethodCall('fullscreenChanged', <String, Object?>{
+          'fullscreen': false,
+        }),
+      ),
+      null,
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.value.fullscreen, isFalse);
+    expect(
+      find.byKey(const ValueKey<String>('fake-video-title')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('macOS 原生全屏状态只同步给已发起全屏的控制器', (WidgetTester tester) async {
+    UnifiedVideoController createController() => UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[createFakeVideoKernel()],
+      ),
+      platform: UnifiedVideoPlatform.macos,
+      stateRefreshInterval: null,
+    );
+
+    final UnifiedVideoController activeController = createController();
+    final UnifiedVideoController inactiveController = createController();
+    addTearDown(activeController.dispose);
+    addTearDown(inactiveController.dispose);
+    await activeController.enterFullscreen(syncPlatform: false);
+
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+          'flutter_video/fullscreen',
+          const StandardMethodCodec().encodeMethodCall(
+            const MethodCall('fullscreenChanged', <String, Object?>{
+              'fullscreen': true,
+            }),
+          ),
+          null,
+        );
+
+    expect(activeController.value.fullscreen, isTrue);
+    expect(inactiveController.value.fullscreen, isFalse);
+
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+          'flutter_video/fullscreen',
+          const StandardMethodCodec().encodeMethodCall(
+            const MethodCall('fullscreenChanged', <String, Object?>{
+              'fullscreen': false,
+            }),
+          ),
+          null,
+        );
+  });
+
+  testWidgets('macOS 系统快捷键进入全屏时当前播放器自动铺满', (WidgetTester tester) async {
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.macos,
+    );
+
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+          'flutter_video/fullscreen',
+          const StandardMethodCodec().encodeMethodCall(
+            const MethodCall('fullscreenChanged', <String, Object?>{
+              'fullscreen': false,
+            }),
+          ),
+          null,
+        );
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+          'flutter_video/fullscreen',
+          const StandardMethodCodec().encodeMethodCall(
+            const MethodCall('fullscreenChanged', <String, Object?>{
+              'fullscreen': true,
+            }),
+          ),
+          null,
+        );
+    await tester.pumpAndSettle();
+
+    expect(controller.value.fullscreen, isTrue);
+    expect(
+      find.byKey(const ValueKey<String>('fake-video-title')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('已全屏播放器不会被动态挂载的另一个播放器抢走所有权', (WidgetTester tester) async {
+    UnifiedVideoController createController() => UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[createFakeVideoKernel()],
+      ),
+      platform: UnifiedVideoPlatform.macos,
+      stateRefreshInterval: null,
+    );
+
+    final UnifiedVideoController activeController = createController();
+    final UnifiedVideoController backgroundController = createController();
+    addTearDown(activeController.dispose);
+    addTearDown(backgroundController.dispose);
+    await activeController.open(VideoSource.network(sampleMp4Url));
+    await backgroundController.open(VideoSource.network(sampleMp4Url));
+    late StateSetter updateHost;
+    bool showBackgroundPlayer = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setState) {
+              updateHost = setState;
+              return Column(
+                children: <Widget>[
+                  SizedBox(
+                    width: 320,
+                    child: UnifiedVideoPlayer(controller: activeController),
+                  ),
+                  if (showBackgroundPlayer)
+                    SizedBox(
+                      width: 320,
+                      child: UnifiedVideoPlayer(
+                        controller: backgroundController,
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await activeController.enterFullscreen(syncPlatform: false);
+    await tester.pumpAndSettle();
+    updateHost(() => showBackgroundPlayer = true);
+    await tester.pumpAndSettle();
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+          'flutter_video/fullscreen',
+          const StandardMethodCodec().encodeMethodCall(
+            const MethodCall('fullscreenChanged', <String, Object?>{
+              'fullscreen': true,
+            }),
+          ),
+          null,
+        );
+    await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .handlePlatformMessage(
+          'flutter_video/fullscreen',
+          const StandardMethodCodec().encodeMethodCall(
+            const MethodCall('fullscreenChanged', <String, Object?>{
+              'fullscreen': false,
+            }),
+          ),
+          null,
+        );
+    await tester.pumpAndSettle();
+
+    expect(activeController.value.fullscreen, isFalse);
+    expect(backgroundController.value.fullscreen, isFalse);
+  });
+
+  testWidgets('打开视频和缓冲视频时显示明确的加载层', (WidgetTester tester) async {
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'delayed-open',
+      displayName: '延迟打开测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _DelayedOpenVideoKernelAdapter adapter =
+        _DelayedOpenVideoKernelAdapter(descriptor);
+    final UnifiedVideoController controller = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(descriptor: descriptor, create: () => adapter),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.android,
+      stateRefreshInterval: null,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: UnifiedVideoPlayer(controller: controller)),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    final Future<void> opening = controller.open(
+      VideoSource.network(sampleMp4Url),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey<String>('video-loading-indicator')),
+      findsOneWidget,
+    );
+    expect(find.text('正在加载视频'), findsOneWidget);
+
+    adapter.completeOpen();
+    await opening;
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('video-loading-indicator')),
+      findsNothing,
+    );
+
+    controller.value = controller.value.copyWith(
+      lifecycle: UnifiedVideoLifecycle.buffering,
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('video-loading-indicator')),
+      findsOneWidget,
+    );
+    expect(find.text('正在缓冲'), findsOneWidget);
   });
 
   testWidgets('设置面板按钮生效后自动关闭', (WidgetTester tester) async {
@@ -296,5 +660,38 @@ class _FailingOpenVideoKernelAdapter extends FakeVideoKernelAdapter {
     UnifiedVideoState state,
   ) async {
     throw StateError('模拟打开失败');
+  }
+}
+
+class _RefreshingSnapshotVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _RefreshingSnapshotVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  @override
+  Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
+    if (!state.isPlaying) {
+      return state;
+    }
+    return state.copyWith(
+      position: state.position + const Duration(milliseconds: 50),
+    );
+  }
+}
+
+class _DelayedOpenVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _DelayedOpenVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  final Completer<void> _openCompleter = Completer<void>();
+
+  void completeOpen() => _openCompleter.complete();
+
+  @override
+  Future<UnifiedVideoState> open(
+    VideoSource source,
+    UnifiedVideoState state,
+  ) async {
+    await _openCompleter.future;
+    return super.open(source, state);
   }
 }
