@@ -15,6 +15,8 @@ void main() {
     List<RegisteredVideoKernel>? kernels,
     KernelPreference preference = const KernelPreference.automatic(),
     UnifiedVideoPlatform platform = UnifiedVideoPlatform.android,
+    VideoKernelRuntimeCoordinator? runtimeCoordinator,
+    Duration? stateRefreshInterval = const Duration(milliseconds: 300),
   }) {
     return UnifiedVideoController(
       registry: VideoKernelRegistry(
@@ -22,6 +24,8 @@ void main() {
       ),
       platform: platform,
       preference: preference,
+      runtimeCoordinator: runtimeCoordinator,
+      stateRefreshInterval: stateRefreshInterval,
     );
   }
 
@@ -116,6 +120,119 @@ void main() {
     expect(player.value.activeKernelId, 'second');
     expect(player.value.position, const Duration(minutes: 2));
     expect(player.value.lifecycle, UnifiedVideoLifecycle.playing);
+  });
+
+  test('切换内核保持进度、暂停状态、倍速、缩放、音量和全屏', () async {
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        createFakeVideoKernel(id: 'first'),
+        createFakeVideoKernel(id: 'second'),
+      ],
+      preference: KernelPreference.exact('first'),
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    await player.seek(const Duration(minutes: 2));
+    await player.setSpeed(1.5);
+    await player.setFit(UnifiedVideoFit.cover);
+    await player.setVolume(0.4);
+    await player.pause();
+    await player.enterFullscreen(syncPlatform: false);
+
+    await player.switchKernel('second');
+
+    expect(player.value.activeKernelId, 'second');
+    expect(player.value.position, const Duration(minutes: 2));
+    expect(player.value.lifecycle, UnifiedVideoLifecycle.paused);
+    expect(player.value.speed, 1.5);
+    expect(player.value.fit, UnifiedVideoFit.cover);
+    expect(player.value.volume, 0.4);
+    expect(player.value.fullscreen, isTrue);
+  });
+
+  test('切换内核按事务顺序释放并恢复适配器状态', () async {
+    const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
+      id: 'first',
+      displayName: '第一日志测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    const VideoKernelDescriptor secondDescriptor = VideoKernelDescriptor(
+      id: 'second',
+      displayName: '第二日志测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final List<String> log = <String>[];
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(
+          descriptor: firstDescriptor,
+          create: () => _LoggingVideoKernelAdapter(firstDescriptor, log),
+        ),
+        RegisteredVideoKernel(
+          descriptor: secondDescriptor,
+          create: () => _LoggingVideoKernelAdapter(secondDescriptor, log),
+        ),
+      ],
+      preference: KernelPreference.exact('first'),
+      runtimeCoordinator: VideoKernelRuntimeCoordinator(),
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    await player.seek(const Duration(seconds: 30));
+    log.clear();
+
+    await player.switchKernel('second');
+
+    expect(log, <String>[
+      'first.snapshot',
+      'first.dispose',
+      'first.runtime.release',
+      'second.runtime.acquire',
+      'second.initialize',
+      'second.open',
+      'second.seek',
+      'second.speed',
+      'second.fit',
+      'second.volume',
+    ]);
+  });
+
+  test('目标内核失败后回滚原内核并继续播放', () async {
+    const VideoKernelDescriptor failingDescriptor = VideoKernelDescriptor(
+      id: 'failing',
+      displayName: '失败测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        createFakeVideoKernel(id: 'stable'),
+        RegisteredVideoKernel(
+          descriptor: failingDescriptor,
+          create: () => _FailingOpenVideoKernelAdapter(failingDescriptor),
+        ),
+      ],
+      preference: KernelPreference.exact('stable'),
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    await player.seek(const Duration(seconds: 30));
+    await player.play();
+
+    await expectLater(
+      player.switchKernel('failing'),
+      throwsA(isA<KernelSwitchException>()),
+    );
+    expect(player.value.activeKernelId, 'stable');
+    expect(player.value.lifecycle, UnifiedVideoLifecycle.playing);
+    expect(player.value.position, const Duration(seconds: 30));
+    expect(player.value.lastKernelSwitchError, isNotNull);
   });
 
   test('切换内核时会重试恢复播放进度', () async {
@@ -343,5 +460,85 @@ class _DelayedSeekVideoKernelAdapter extends FakeVideoKernelAdapter {
   @override
   Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
     return state.copyWith(position: _position);
+  }
+}
+
+class _LoggingVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _LoggingVideoKernelAdapter(VideoKernelDescriptor descriptor, this._log)
+    : super(descriptor: descriptor);
+
+  final List<String> _log;
+
+  @override
+  Future<void> activateRuntime() async {
+    _log.add('${descriptor.id}.runtime.acquire');
+  }
+
+  @override
+  Future<void> deactivateRuntime() async {
+    _log.add('${descriptor.id}.runtime.release');
+  }
+
+  @override
+  Future<void> initialize() async {
+    _log.add('${descriptor.id}.initialize');
+    await super.initialize();
+  }
+
+  @override
+  Future<UnifiedVideoState> open(
+    VideoSource source,
+    UnifiedVideoState state,
+  ) async {
+    _log.add('${descriptor.id}.open');
+    return super.open(source, state);
+  }
+
+  @override
+  Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
+    _log.add('${descriptor.id}.snapshot');
+    return super.snapshot(state);
+  }
+
+  @override
+  Future<UnifiedVideoState> seek(
+    Duration position,
+    UnifiedVideoState state,
+  ) async {
+    _log.add('${descriptor.id}.seek');
+    return super.seek(position, state);
+  }
+
+  @override
+  Future<UnifiedVideoState> setSpeed(
+    double speed,
+    UnifiedVideoState state,
+  ) async {
+    _log.add('${descriptor.id}.speed');
+    return super.setSpeed(speed, state);
+  }
+
+  @override
+  Future<UnifiedVideoState> setFit(
+    UnifiedVideoFit fit,
+    UnifiedVideoState state,
+  ) async {
+    _log.add('${descriptor.id}.fit');
+    return super.setFit(fit, state);
+  }
+
+  @override
+  Future<UnifiedVideoState> setVolume(
+    double volume,
+    UnifiedVideoState state,
+  ) async {
+    _log.add('${descriptor.id}.volume');
+    return super.setVolume(volume, state);
+  }
+
+  @override
+  Future<void> dispose() async {
+    _log.add('${descriptor.id}.dispose');
+    await super.dispose();
   }
 }
