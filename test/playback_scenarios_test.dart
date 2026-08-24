@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_video/flutter_video.dart';
+import 'package:lee_video/lee_video.dart';
 
 void main() {
   test('默认播放场景覆盖真实地址和异常地址验证', () {

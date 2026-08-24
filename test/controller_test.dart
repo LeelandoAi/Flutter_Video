@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_video/flutter_video.dart';
+import 'package:lee_video/lee_video.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

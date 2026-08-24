@@ -1,6 +1,25 @@
-# Flutter Video
+# Lee Video
 
-一个面向 Android、iOS、Windows、macOS 的统一聚合影视播放器库原型。当前实现已落地核心 API、内核抽象、默认播放器 UI、fake 测试内核、Media Kit/libmpv 适配器、FVP/libmdk 适配器、官方 Video Player 适配器和 Erika/Rust Renderer 适配器。
+一个面向 Android、iOS、Windows、macOS 的统一聚合影视播放器库。当前实现已落地核心 API、内核抽象、默认播放器 UI、fake 测试内核、Media Kit/libmpv 适配器、FVP/libmdk 适配器、官方 Video Player 适配器和 Erika/Rust Renderer 适配器。
+
+## 安装
+
+```bash
+flutter pub add lee_video
+```
+
+```dart
+import 'package:lee_video/lee_video.dart';
+```
+
+最低环境要求：Flutter 3.44、Dart 3.12.2、Android API 26、iOS 13 和 macOS 10.15。Windows 需要 Flutter 支持的 Visual Studio C++ 桌面工具链。
+
+运行完整场景 Demo：
+
+```bash
+cd example
+flutter run
+```
 
 ## 示例播放地址
 
@@ -19,6 +38,8 @@
 ## 核心用法
 
 ```dart
+import 'package:lee_video/lee_video.dart';
+
 final controller = UnifiedVideoController(
   registry: VideoKernelRegistry(
     kernels: [
@@ -122,7 +143,7 @@ WEBVTT
 
 切换播放器内核时，控制器会保留当前播放源、播放进度、倍速和播放/暂停状态；切到 Media Kit/Erika 这类打开后需要异步 ready 的后端时，会带起播点打开并重试 seek，避免从 0 秒重新播放。
 
-Erika 构建依赖官方原生插件和 native library，开发机需要满足对应平台工具链要求；Flutter asset 播放会先复制到系统临时文件，再交给 Erika 以本地路径打开。
+Erika 构建依赖官方原生插件和 native library。首次构建会从 AimesSoft/Erika GitHub Releases 下载与 `erika_flutter` 版本匹配并经过 SHA-256 校验的预编译运行库，因此构建机必须能够访问 GitHub Release Assets；Flutter asset 播放会先复制到系统临时文件，再交给 Erika 以本地路径打开。
 
 ## 平台网络权限
 
@@ -173,6 +194,9 @@ demo 打开播放源后会自动调用 `play()`，并通过控制器定时读取
 ```bash
 flutter analyze
 flutter test
+dart pub publish --dry-run
+
+cd example
 flutter build apk --debug
 flutter build macos --debug
 flutter build ios --debug --no-codesign

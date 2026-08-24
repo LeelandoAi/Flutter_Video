@@ -3,8 +3,6 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
-#include <flutter/method_channel.h>
-#include <flutter/standard_method_codec.h>
 
 #include <memory>
 
@@ -25,19 +23,11 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
-  void SetFullscreen(bool fullscreen);
-
   // The project to run.
   flutter::DartProject project_;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
-  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
-      fullscreen_channel_;
-  bool fullscreen_ = false;
-  LONG_PTR previous_style_ = 0;
-  LONG_PTR previous_ex_style_ = 0;
-  WINDOWPLACEMENT previous_placement_ = {sizeof(WINDOWPLACEMENT)};
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

@@ -1,0 +1,23 @@
+name: lee_video_example
+description: 展示 lee_video 多内核播放器的功能和常见影视播放场景。
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  lee_video:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/videos/demo_tone.mp4

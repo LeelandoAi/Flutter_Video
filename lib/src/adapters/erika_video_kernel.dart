@@ -220,13 +220,10 @@ class ErikaVideoKernelAdapter implements VideoKernelAdapter {
             defaultTargetPlatform == TargetPlatform.windows)) {
       return erika.ErikaWindowOverlayVideoView(
         player: _player,
-        debugLabel: 'flutter_video_erika',
+        debugLabel: 'lee_video_erika',
       );
     }
-    return erika.ErikaVideoView(
-      player: _player,
-      debugLabel: 'flutter_video_erika',
-    );
+    return erika.ErikaVideoView(player: _player, debugLabel: 'lee_video_erika');
   }
 
   @override
@@ -375,7 +372,7 @@ class ErikaVideoKernelAdapter implements VideoKernelAdapter {
     final String extension = _extensionFor(uri);
     final String fileName = '${_stableHash(uri.toString())}$extension';
     final Directory directory = Directory(
-      '${Directory.systemTemp.path}/flutter_video_erika_network',
+      '${Directory.systemTemp.path}/lee_video_erika_network',
     );
     await directory.create(recursive: true);
     final File file = File('${directory.path}/$fileName');
@@ -420,7 +417,7 @@ class ErikaVideoKernelAdapter implements VideoKernelAdapter {
       '_',
     );
     final Directory directory = Directory(
-      '${Directory.systemTemp.path}/flutter_video_erika_assets',
+      '${Directory.systemTemp.path}/lee_video_erika_assets',
     );
     await directory.create(recursive: true);
     final File file = File('${directory.path}/$sanitizedName');

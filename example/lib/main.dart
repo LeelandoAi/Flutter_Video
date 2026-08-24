@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_video/flutter_video.dart';
+import 'package:lee_video/lee_video.dart';
 
 void main() {
   runApp(const DemoApp());

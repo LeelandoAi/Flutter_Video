@@ -1,7 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_video/flutter_video.dart';
+import 'package:lee_video/lee_video.dart';
 
 void main() {
   test('GSYVideoPreviewVttParser 解析独立图片和雪碧图坐标', () {
