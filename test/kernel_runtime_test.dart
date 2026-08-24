@@ -45,6 +45,17 @@ void main() {
     );
   });
 
+  test('运行时冲突异常提供中文诊断消息', () {
+    expect(
+      const KernelRuntimeConflictException(
+        group: 'platform',
+        activeIdentity: 'fvp',
+        requestedIdentity: 'official',
+      ).toString(),
+      'KernelRuntimeConflictException(运行时组 platform 已被身份 fvp 占用，无法请求身份 official)',
+    );
+  });
+
   test('Fake 内核将音量限制在零到一之间', () async {
     final adapter = FakeVideoKernelAdapter();
     addTearDown(adapter.dispose);

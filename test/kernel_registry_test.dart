@@ -28,4 +28,11 @@ void main() {
       throwsA(isA<DuplicateVideoKernelException>()),
     );
   });
+
+  test('重复内核异常提供中文诊断消息', () {
+    expect(
+      const DuplicateVideoKernelException('same').toString(),
+      'DuplicateVideoKernelException(内核 ID 已重复注册: same)',
+    );
+  });
 }

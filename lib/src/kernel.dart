@@ -222,7 +222,7 @@ class DuplicateVideoKernelException implements Exception {
   final String kernelId;
 
   @override
-  String toString() => 'DuplicateVideoKernelException(kernelId: $kernelId)';
+  String toString() => 'DuplicateVideoKernelException(内核 ID 已重复注册: $kernelId)';
 }
 
 class UnsupportedKernelException implements Exception {

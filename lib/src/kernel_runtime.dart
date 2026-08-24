@@ -13,9 +13,8 @@ class KernelRuntimeConflictException implements Exception {
 
   @override
   String toString() {
-    return 'KernelRuntimeConflictException(group: $group, '
-        'activeIdentity: $activeIdentity, '
-        'requestedIdentity: $requestedIdentity)';
+    return 'KernelRuntimeConflictException(运行时组 $group 已被身份 '
+        '$activeIdentity 占用，无法请求身份 $requestedIdentity)';
   }
 }
 
