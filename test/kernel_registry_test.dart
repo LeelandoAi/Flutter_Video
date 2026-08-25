@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lee_video/lee_video.dart';
+import 'package:leelando_video/leelando_video.dart';
 
 void main() {
   test('注册表保留顺序并支持批量注册、查询和注销', () {
@@ -9,10 +9,10 @@ void main() {
       createFakeVideoKernel(id: 'second', displayName: '第二内核'),
     ]);
 
-    expect(
-      registry.descriptors.map((item) => item.id),
-      <String>['first', 'second'],
-    );
+    expect(registry.descriptors.map((item) => item.id), <String>[
+      'first',
+      'second',
+    ]);
     expect(registry.contains('first'), isTrue);
     expect(registry.unregister('first')?.descriptor.id, 'first');
     expect(registry.contains('first'), isFalse);

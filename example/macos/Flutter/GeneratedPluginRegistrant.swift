@@ -7,7 +7,7 @@ import Foundation
 
 import erika_flutter
 import fvp
-import lee_video
+import leelando_video
 import media_kit_libs_macos_video
 import media_kit_video
 import package_info_plus
@@ -17,7 +17,7 @@ import wakelock_plus
 func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   ErikaFlutterPlugin.register(with: registry.registrar(forPlugin: "ErikaFlutterPlugin"))
   FvpPlugin.register(with: registry.registrar(forPlugin: "FvpPlugin"))
-  LeeVideoPlugin.register(with: registry.registrar(forPlugin: "LeeVideoPlugin"))
+  LeelandoVideoPlugin.register(with: registry.registrar(forPlugin: "LeelandoVideoPlugin"))
   MediaKitLibsMacosVideoPlugin.register(with: registry.registrar(forPlugin: "MediaKitLibsMacosVideoPlugin"))
   MediaKitVideoPlugin.register(with: registry.registrar(forPlugin: "MediaKitVideoPlugin"))
   FPPPackageInfoPlusPlugin.register(with: registry.registrar(forPlugin: "FPPPackageInfoPlusPlugin"))

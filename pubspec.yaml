@@ -1,4 +1,4 @@
-name: lee_video
+name: leelando_video
 description: 面向 Flutter 的可插拔统一影视播放器核心，提供跨平台播放协议、统一状态控制器和播放器 UI，由应用按需安装并注册具体播放内核。
 version: 0.2.0
 repository: https://github.com/LeelandoAi/Flutter_Video
@@ -28,19 +28,19 @@ flutter:
   plugin:
     platforms:
       android:
-        package: com.leelandoai.lee_video
-        pluginClass: LeeVideoPlugin
+        package: com.leelandoai.leelando_video
+        pluginClass: LeelandoVideoPlugin
       ios:
-        pluginClass: LeeVideoPlugin
+        pluginClass: LeelandoVideoPlugin
       macos:
-        pluginClass: LeeVideoPlugin
+        pluginClass: LeelandoVideoPlugin
       windows:
-        pluginClass: LeeVideoPluginCApi
+        pluginClass: LeelandoVideoPluginCApi
 
 workspace:
-  - packages/lee_video_all
-  - packages/lee_video_erika
-  - packages/lee_video_fvp
-  - packages/lee_video_media_kit
-  - packages/lee_video_video_player
+  - packages/leelando_video_all
+  - packages/leelando_video_erika
+  - packages/leelando_video_fvp
+  - packages/leelando_video_media_kit
+  - packages/leelando_video_video_player
   - example

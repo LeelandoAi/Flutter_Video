@@ -1,4 +1,4 @@
-group = "com.leelandoai.lee_video"
+group = "com.leelandoai.leelando_video"
 version = "1.0-SNAPSHOT"
 
 buildscript {
@@ -26,7 +26,7 @@ plugins {
 }
 
 android {
-    namespace = "com.leelandoai.lee_video"
+    namespace = "com.leelandoai.leelando_video"
 
     compileSdk = 36
 

@@ -6,7 +6,9 @@ import 'models.dart';
 class UnifiedVideoFullscreenPlatform {
   const UnifiedVideoFullscreenPlatform._();
 
-  static const MethodChannel _channel = MethodChannel('lee_video/fullscreen');
+  static const MethodChannel _channel = MethodChannel(
+    'leelando_video/fullscreen',
+  );
   static final ValueNotifier<bool?> changes = ValueNotifier<bool?>(null);
   static bool _changeHandlerInitialized = false;
   static Object? _fullscreenOwner;

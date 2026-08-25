@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lee_video/lee_video.dart';
-import 'package:lee_video/src/fullscreen_platform.dart';
+import 'package:leelando_video/leelando_video.dart';
+import 'package:leelando_video/src/fullscreen_platform.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

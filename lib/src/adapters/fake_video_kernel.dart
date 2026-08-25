@@ -195,9 +195,7 @@ RegisteredVideoKernel createFakeVideoKernel({
   );
   return RegisteredVideoKernel(
     descriptor: descriptor,
-    create: () => FakeVideoKernelAdapter(
-      duration: duration,
-      descriptor: descriptor,
-    ),
+    create: () =>
+        FakeVideoKernelAdapter(duration: duration, descriptor: descriptor),
   );
 }

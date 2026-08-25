@@ -1,8 +1,8 @@
-# Lee Video 可插拔播放器内核实施计划
+# Leelando Video 可插拔播放器内核实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 `lee_video` 改造成不依赖具体播放引擎的核心包，并提供四个可独立安装、可在单个播放器 View 中保留状态切换的内核包。
+**Goal:** 将 `leelando_video` 改造成不依赖具体播放引擎的核心包，并提供四个可独立安装、可在单个播放器 View 中保留状态切换的内核包。
 
 **Architecture:** 根包保留统一 API、控制器、播放器 UI 和全屏平台插件，具体适配器迁移到 `packages/` 下的独立包。核心通过运行时租约协调 FVP 与官方 `VideoPlayerPlatform`，控制器使用串行事务完成快照、释放、激活、打开、恢复和失败回滚。
 
@@ -12,9 +12,9 @@
 
 ## Global Constraints
 
-- 核心包名保持 `lee_video`，首个拆分版本为 `0.2.0`。
-- 独立包名固定为 `lee_video_erika`、`lee_video_media_kit`、`lee_video_fvp`、`lee_video_video_player`、`lee_video_all`，首版均为 `0.2.0`。
-- 核心 `lee_video` 的依赖中只能保留 Flutter SDK，不得依赖 Erika、MediaKit、FVP 或 `video_player`。
+- 核心包名保持 `leelando_video`，首个拆分版本为 `0.2.0`。
+- 独立包名固定为 `leelando_video_erika`、`leelando_video_media_kit`、`leelando_video_fvp`、`leelando_video_video_player`、`leelando_video_all`，首版均为 `0.2.0`。
+- 核心 `leelando_video` 的依赖中只能保留 Flutter SDK，不得依赖 Erika、MediaKit、FVP 或 `video_player`。
 - 四个内核必须能同时注册到一个 `VideoKernelRegistry`，单个播放器 View 必须能逐个切换。
 - FVP 与官方内核通过进程级 `video-player-platform` 运行时组串行切换；不支持两个 View 同时分别运行这两个后端。
 - 切核必须保持播放源、进度、播放/暂停、倍速、缩放、音量和全屏状态。
@@ -24,7 +24,7 @@
 
 ## File Map
 
-### Core `lee_video`
+### Core `leelando_video`
 
 - `lib/src/kernel.dart`: 内核协议、描述符、注册表和重复 ID 异常。
 - `lib/src/kernel_runtime.dart`: 进程级运行时租约和冲突协调。
@@ -32,7 +32,7 @@
 - `lib/src/controller.dart`: 打开、命令串行、事务切核和失败回滚。
 - `lib/src/adapters/fake_video_kernel.dart`: 无第三方依赖的测试内核。
 - `lib/src/widgets/unified_video_player.dart`: 稳定 Surface 宿主、切核 Loading 和可用内核菜单。
-- `lib/lee_video.dart`: 仅导出核心 API 和 Fake 适配器。
+- `lib/leelando_video.dart`: 仅导出核心 API 和 Fake 适配器。
 - `test/kernel_registry_test.dart`: 注册表和自定义内核契约测试。
 - `test/kernel_runtime_test.dart`: 运行时租约测试。
 - `test/controller_test.dart`: 切核事务和回滚测试。
@@ -40,11 +40,11 @@
 
 ### Optional kernels
 
-- `packages/lee_video_video_player/`: Flutter 官方 Video Player 适配器。
-- `packages/lee_video_fvp/`: FVP 适配器及全局平台接管/恢复。
-- `packages/lee_video_erika/`: Erika 适配器。
-- `packages/lee_video_media_kit/`: MediaKit 适配器。
-- `packages/lee_video_all/`: 四内核导出和便捷工厂。
+- `packages/leelando_video_video_player/`: Flutter 官方 Video Player 适配器。
+- `packages/leelando_video_fvp/`: FVP 适配器及全局平台接管/恢复。
+- `packages/leelando_video_erika/`: Erika 适配器。
+- `packages/leelando_video_media_kit/`: MediaKit 适配器。
+- `packages/leelando_video_all/`: 四内核导出和便捷工厂。
 
 ### Workspace and demo
 
@@ -52,7 +52,7 @@
 - `pubspec.lock`: workspace 唯一锁文件，纳入 Git，但由 `.pubignore` 排除发布包。
 - `.gitignore`: 不再忽略 workspace 根锁文件。
 - `.pubignore`: 排除 workspace 锁文件、子包和平台构建产物。
-- `example/pubspec.yaml`: workspace Demo，依赖 `lee_video_all`。
+- `example/pubspec.yaml`: workspace Demo，依赖 `leelando_video_all`。
 - `example/lib/main.dart`: 使用全量工厂注册四个内核。
 - `README.md`: 核心包、可选内核和迁移说明。
 - `CHANGELOG.md`: `0.2.0` 破坏性变更。
@@ -68,7 +68,7 @@
 - Modify: `lib/src/kernel.dart`
 - Modify: `lib/src/models.dart`
 - Modify: `lib/src/adapters/fake_video_kernel.dart`
-- Modify: `lib/lee_video.dart`
+- Modify: `lib/leelando_video.dart`
 
 **Interfaces:**
 - Consumes: Existing `VideoKernelAdapter`, `RegisteredVideoKernel`, `VideoKernelRegistry`, `UnifiedVideoState`.
@@ -80,7 +80,7 @@ Create `test/kernel_registry_test.dart` with focused tests:
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lee_video/lee_video.dart';
+import 'package:leelando_video/leelando_video.dart';
 
 void main() {
   test('注册表保留顺序并支持批量注册、查询和注销', () {
@@ -281,7 +281,7 @@ Expected: tests pass and analyzer reports no issues after existing test adapters
 - [ ] **Step 10: Commit core contracts**
 
 ```bash
-git add lib/src/kernel.dart lib/src/kernel_runtime.dart lib/src/models.dart lib/src/adapters/fake_video_kernel.dart lib/lee_video.dart test/kernel_registry_test.dart test/kernel_runtime_test.dart
+git add lib/src/kernel.dart lib/src/kernel_runtime.dart lib/src/models.dart lib/src/adapters/fake_video_kernel.dart lib/leelando_video.dart test/kernel_registry_test.dart test/kernel_runtime_test.dart
 git commit -m "feat(core): add pluggable kernel runtime contracts"
 ```
 
@@ -574,18 +574,18 @@ git commit -m "feat(player): keep one view while switching kernels"
 ### Task 4: Pub workspace and Flutter 官方内核包
 
 **Files:**
-- Create: `packages/lee_video_video_player/pubspec.yaml`
-- Create: `packages/lee_video_video_player/README.md`
-- Create: `packages/lee_video_video_player/CHANGELOG.md`
-- Create: `packages/lee_video_video_player/LICENSE`
-- Create: `packages/lee_video_video_player/lib/lee_video_video_player.dart`
-- Create: `packages/lee_video_video_player/lib/src/video_player_kernel_base.dart`
-- Create: `packages/lee_video_video_player/lib/src/official_video_player_kernel.dart`
-- Create: `packages/lee_video_video_player/test/official_video_player_kernel_test.dart`
+- Create: `packages/leelando_video_video_player/pubspec.yaml`
+- Create: `packages/leelando_video_video_player/README.md`
+- Create: `packages/leelando_video_video_player/CHANGELOG.md`
+- Create: `packages/leelando_video_video_player/LICENSE`
+- Create: `packages/leelando_video_video_player/lib/leelando_video_video_player.dart`
+- Create: `packages/leelando_video_video_player/lib/src/video_player_kernel_base.dart`
+- Create: `packages/leelando_video_video_player/lib/src/official_video_player_kernel.dart`
+- Create: `packages/leelando_video_video_player/test/official_video_player_kernel_test.dart`
 - Modify: `pubspec.yaml`
 - Modify: `.gitignore`
 - Modify: `.pubignore`
-- Modify: `lib/lee_video.dart`
+- Modify: `lib/leelando_video.dart`
 - Delete: `lib/src/adapters/video_player_kernel_base.dart`
 - Delete: `lib/src/adapters/official_video_player_kernel.dart`
 - Delete: `lib/src/adapters/placeholder_kernels.dart`
@@ -600,8 +600,8 @@ Create the package test importing only public package APIs:
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lee_video/lee_video.dart';
-import 'package:lee_video_video_player/lee_video_video_player.dart';
+import 'package:leelando_video/leelando_video.dart';
+import 'package:leelando_video_video_player/leelando_video_video_player.dart';
 
 void main() {
   test('官方内核工厂声明正确能力和运行时身份', () {
@@ -621,11 +621,11 @@ Update root `pubspec.yaml` to `version: 0.2.0`, reduce root dependencies to Flut
 
 ```yaml
 workspace:
-  - packages/lee_video_erika
-  - packages/lee_video_media_kit
-  - packages/lee_video_fvp
-  - packages/lee_video_video_player
-  - packages/lee_video_all
+  - packages/leelando_video_erika
+  - packages/leelando_video_media_kit
+  - packages/leelando_video_fvp
+  - packages/leelando_video_video_player
+  - packages/leelando_video_all
   - example
 ```
 
@@ -640,7 +640,7 @@ Add `resolution: workspace` to each member as it is created. Remove `/pubspec.lo
 
 Run: `dart pub get`
 
-Run: `flutter test packages/lee_video_video_player/test/official_video_player_kernel_test.dart`
+Run: `flutter test packages/leelando_video_video_player/test/official_video_player_kernel_test.dart`
 
 Expected: test fails because the package implementation has not moved yet.
 
@@ -667,14 +667,14 @@ String get runtimeGroup => 'video-player-platform';
 String get runtimeIdentity => 'video-player-official';
 ```
 
-Remove all concrete engine exports and placeholder exports from core `lib/lee_video.dart`.
+Remove all concrete engine exports and placeholder exports from core `lib/leelando_video.dart`.
 
 - [ ] **Step 4: Complete package metadata**
 
 Use hosted dependency constraints:
 
 ```yaml
-name: lee_video_video_player
+name: leelando_video_video_player
 version: 0.2.0
 resolution: workspace
 environment:
@@ -683,7 +683,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  lee_video: ^0.2.0
+  leelando_video: ^0.2.0
   video_player: ^2.14.0
 ```
 
@@ -693,7 +693,7 @@ Copy the root MIT license. README must show installation, import and registratio
 
 Run: `dart pub get`
 
-Run: `flutter test packages/lee_video_video_player/test`
+Run: `flutter test packages/leelando_video_video_player/test`
 
 Run: `flutter test`
 
@@ -704,21 +704,21 @@ Expected: the workspace graph contains optional engines because member packages 
 - [ ] **Step 6: Commit workspace and official package**
 
 ```bash
-git add pubspec.yaml pubspec.lock .gitignore .pubignore lib packages/lee_video_video_player
+git add pubspec.yaml pubspec.lock .gitignore .pubignore lib packages/leelando_video_video_player
 git commit -m "feat(packages): extract official video player kernel"
 ```
 
 ### Task 5: FVP 可插拔包和官方平台恢复
 
 **Files:**
-- Create: `packages/lee_video_fvp/pubspec.yaml`
-- Create: `packages/lee_video_fvp/README.md`
-- Create: `packages/lee_video_fvp/CHANGELOG.md`
-- Create: `packages/lee_video_fvp/LICENSE`
-- Create: `packages/lee_video_fvp/lib/lee_video_fvp.dart`
-- Create: `packages/lee_video_fvp/lib/src/fvp_video_kernel.dart`
-- Create: `packages/lee_video_fvp/lib/src/fvp_video_player_adapter.dart`
-- Create: `packages/lee_video_fvp/test/fvp_runtime_test.dart`
+- Create: `packages/leelando_video_fvp/pubspec.yaml`
+- Create: `packages/leelando_video_fvp/README.md`
+- Create: `packages/leelando_video_fvp/CHANGELOG.md`
+- Create: `packages/leelando_video_fvp/LICENSE`
+- Create: `packages/leelando_video_fvp/lib/leelando_video_fvp.dart`
+- Create: `packages/leelando_video_fvp/lib/src/fvp_video_kernel.dart`
+- Create: `packages/leelando_video_fvp/lib/src/fvp_video_player_adapter.dart`
+- Create: `packages/leelando_video_fvp/test/fvp_runtime_test.dart`
 - Delete: `lib/src/adapters/fvp_video_kernel.dart`
 
 **Interfaces:**
@@ -751,23 +751,23 @@ Use dependencies:
 dependencies:
   flutter:
     sdk: flutter
-  lee_video: ^0.2.0
+  leelando_video: ^0.2.0
   fvp: ^0.38.1
   video_player: ^2.14.0
   video_player_platform_interface: ^6.9.0
 ```
 
-Add `lee_video_video_player: ^0.2.0` under `dev_dependencies` only for the real FVP-to-official handoff test. It must not appear under production `dependencies`.
+Add `leelando_video_video_player: ^0.2.0` under `dev_dependencies` only for the real FVP-to-official handoff test. It must not appear under production `dependencies`.
 
 Run: `dart pub get`
 
-Run: `flutter test packages/lee_video_fvp/test/fvp_runtime_test.dart`
+Run: `flutter test packages/leelando_video_fvp/test/fvp_runtime_test.dart`
 
 Expected: test fails because FVP runtime hooks are not implemented.
 
 - [ ] **Step 3: Implement independent FVP adapter**
 
-Move the FVP descriptor and factory into the package. Implement its own `VideoPlayerController` wrapper rather than depending on `lee_video_video_player`, so `lee_video_fvp` does not pull the official adapter package into the dependency graph.
+Move the FVP descriptor and factory into the package. Implement its own `VideoPlayerController` wrapper rather than depending on `leelando_video_video_player`, so `leelando_video_fvp` does not pull the official adapter package into the dependency graph.
 
 Declare:
 
@@ -805,7 +805,7 @@ expect(VideoPlayerPlatform.instance, same(previous));
 await officialLease.release();
 ```
 
-Run: `flutter test packages/lee_video_fvp/test`
+Run: `flutter test packages/leelando_video_fvp/test`
 
 Expected: activation changes the global implementation and release restores the previous implementation.
 
@@ -814,27 +814,27 @@ Expected: activation changes the global implementation and release restores the 
 Copy MIT license; README documents that FVP and official adapters can be registered together for one-View sequential switching, while different Views cannot concurrently occupy different implementations.
 
 ```bash
-git add packages/lee_video_fvp lib/src/adapters/fvp_video_kernel.dart pubspec.lock
+git add packages/leelando_video_fvp lib/src/adapters/fvp_video_kernel.dart pubspec.lock
 git commit -m "feat(packages): extract switchable FVP kernel"
 ```
 
 ### Task 6: Erika 与 MediaKit 可插拔包
 
 **Files:**
-- Create: `packages/lee_video_erika/pubspec.yaml`
-- Create: `packages/lee_video_erika/README.md`
-- Create: `packages/lee_video_erika/CHANGELOG.md`
-- Create: `packages/lee_video_erika/LICENSE`
-- Create: `packages/lee_video_erika/lib/lee_video_erika.dart`
-- Create: `packages/lee_video_erika/lib/src/erika_video_kernel.dart`
-- Create: `packages/lee_video_erika/test/erika_video_kernel_test.dart`
-- Create: `packages/lee_video_media_kit/pubspec.yaml`
-- Create: `packages/lee_video_media_kit/README.md`
-- Create: `packages/lee_video_media_kit/CHANGELOG.md`
-- Create: `packages/lee_video_media_kit/LICENSE`
-- Create: `packages/lee_video_media_kit/lib/lee_video_media_kit.dart`
-- Create: `packages/lee_video_media_kit/lib/src/media_kit_video_kernel.dart`
-- Create: `packages/lee_video_media_kit/test/media_kit_video_kernel_test.dart`
+- Create: `packages/leelando_video_erika/pubspec.yaml`
+- Create: `packages/leelando_video_erika/README.md`
+- Create: `packages/leelando_video_erika/CHANGELOG.md`
+- Create: `packages/leelando_video_erika/LICENSE`
+- Create: `packages/leelando_video_erika/lib/leelando_video_erika.dart`
+- Create: `packages/leelando_video_erika/lib/src/erika_video_kernel.dart`
+- Create: `packages/leelando_video_erika/test/erika_video_kernel_test.dart`
+- Create: `packages/leelando_video_media_kit/pubspec.yaml`
+- Create: `packages/leelando_video_media_kit/README.md`
+- Create: `packages/leelando_video_media_kit/CHANGELOG.md`
+- Create: `packages/leelando_video_media_kit/LICENSE`
+- Create: `packages/leelando_video_media_kit/lib/leelando_video_media_kit.dart`
+- Create: `packages/leelando_video_media_kit/lib/src/media_kit_video_kernel.dart`
+- Create: `packages/leelando_video_media_kit/test/media_kit_video_kernel_test.dart`
 - Delete: `lib/src/adapters/erika_video_kernel.dart`
 - Delete: `lib/src/adapters/media_kit_video_kernel.dart`
 
@@ -858,14 +858,14 @@ expect(createMediaKitVideoKernel().create().runtimeGroup, isNull);
 Erika dependencies:
 
 ```yaml
-lee_video: ^0.2.0
+leelando_video: ^0.2.0
 erika_flutter: ^0.1.7
 ```
 
 MediaKit dependencies:
 
 ```yaml
-lee_video: ^0.2.0
+leelando_video: ^0.2.0
 media_kit: ^1.2.6
 media_kit_video: ^2.0.1
 media_kit_libs_video: ^1.0.7
@@ -873,7 +873,7 @@ media_kit_libs_video: ^1.0.7
 
 Run: `dart pub get`
 
-Run: `flutter test packages/lee_video_erika/test packages/lee_video_media_kit/test`
+Run: `flutter test packages/leelando_video_erika/test packages/leelando_video_media_kit/test`
 
 Expected: tests fail before adapters are moved.
 
@@ -899,7 +899,7 @@ Keep `Media(... start: state.position)` and the post-open controller seek so pro
 
 Copy MIT license and create Chinese README/CHANGELOG for both packages.
 
-Run: `flutter test packages/lee_video_erika/test packages/lee_video_media_kit/test`
+Run: `flutter test packages/leelando_video_erika/test packages/leelando_video_media_kit/test`
 
 Run: `flutter analyze`
 
@@ -908,19 +908,19 @@ Expected: package tests pass and core no longer imports engine packages.
 - [ ] **Step 6: Commit Erika and MediaKit packages**
 
 ```bash
-git add packages/lee_video_erika packages/lee_video_media_kit lib pubspec.lock
+git add packages/leelando_video_erika packages/leelando_video_media_kit lib pubspec.lock
 git commit -m "feat(packages): extract Erika and MediaKit kernels"
 ```
 
 ### Task 7: 全量便捷包和四内核组合契约
 
 **Files:**
-- Create: `packages/lee_video_all/pubspec.yaml`
-- Create: `packages/lee_video_all/README.md`
-- Create: `packages/lee_video_all/CHANGELOG.md`
-- Create: `packages/lee_video_all/LICENSE`
-- Create: `packages/lee_video_all/lib/lee_video_all.dart`
-- Create: `packages/lee_video_all/test/all_kernels_test.dart`
+- Create: `packages/leelando_video_all/pubspec.yaml`
+- Create: `packages/leelando_video_all/README.md`
+- Create: `packages/leelando_video_all/CHANGELOG.md`
+- Create: `packages/leelando_video_all/LICENSE`
+- Create: `packages/leelando_video_all/lib/leelando_video_all.dart`
+- Create: `packages/leelando_video_all/test/all_kernels_test.dart`
 
 **Interfaces:**
 - Consumes: all four optional package factories.
@@ -930,7 +930,7 @@ git commit -m "feat(packages): extract Erika and MediaKit kernels"
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lee_video_all/lee_video_all.dart';
+import 'package:leelando_video_all/leelando_video_all.dart';
 
 void main() {
   test('全量工厂按稳定顺序返回四个真实内核', () {
@@ -946,13 +946,13 @@ void main() {
 
 Use `^0.2.0` hosted constraints for core and all four packages. Run:
 
-`flutter test packages/lee_video_all/test/all_kernels_test.dart`
+`flutter test packages/leelando_video_all/test/all_kernels_test.dart`
 
 Expected: test fails because entrypoint and factory do not exist.
 
 - [ ] **Step 3: Implement exports and factory**
 
-`lib/lee_video_all.dart` must export core and all optional public entrypoints, then define:
+`lib/leelando_video_all.dart` must export core and all optional public entrypoints, then define:
 
 ```dart
 List<RegisteredVideoKernel> createAllVideoKernels() {
@@ -971,14 +971,14 @@ Return a new fixed-order list per call so registries cannot share mutable list s
 
 Copy MIT license. README must explain that this package intentionally includes all native engines and direct users should choose independent packages for smaller builds.
 
-Run: `flutter test packages/lee_video_all/test`
+Run: `flutter test packages/leelando_video_all/test`
 
 Expected: test passes with four unique descriptors.
 
 - [ ] **Step 5: Commit all-kernel package**
 
 ```bash
-git add packages/lee_video_all pubspec.lock
+git add packages/leelando_video_all pubspec.lock
 git commit -m "feat(packages): add all-kernel convenience package"
 ```
 
@@ -992,7 +992,7 @@ git commit -m "feat(packages): add all-kernel convenience package"
 - Create: `example/test/kernel_switch_smoke_test.dart`
 
 **Interfaces:**
-- Consumes: `lee_video_all`, transactional controller and compatible menu.
+- Consumes: `leelando_video_all`, transactional controller and compatible menu.
 - Produces: four-kernel Demo and public migration documentation.
 
 - [ ] **Step 1: Write failing Demo registry smoke test**
@@ -1022,7 +1022,7 @@ Run: `flutter test example/test/kernel_switch_smoke_test.dart`
 
 Expected: test fails because Demo still imports concrete factories from core.
 
-- [ ] **Step 3: Migrate Demo to `lee_video_all`**
+- [ ] **Step 3: Migrate Demo to `leelando_video_all`**
 
 Update `example/pubspec.yaml`:
 
@@ -1031,18 +1031,18 @@ resolution: workspace
 dependencies:
   flutter:
     sdk: flutter
-  lee_video: ^0.2.0
-  lee_video_all: ^0.2.0
+  leelando_video: ^0.2.0
+  leelando_video_all: ^0.2.0
 ```
 
-Import `package:lee_video_all/lee_video_all.dart`, remove placeholder factories, and use `createAllVideoKernels()`. Keep existing GSY scenario UI and all real playback sources.
+Import `package:leelando_video_all/leelando_video_all.dart`, remove placeholder factories, and use `createAllVideoKernels()`. Keep existing GSY scenario UI and all real playback sources.
 
 - [ ] **Step 4: Update README installation matrix**
 
 Document three paths with complete snippets:
 
 1. Core plus selected kernel packages.
-2. Full `lee_video_all` package.
+2. Full `leelando_video_all` package.
 3. Custom adapter implementation.
 
 Include `0.1.x -> 0.2.0` import migration and state that package dependency selection controls final built-in native engines.
@@ -1051,7 +1051,7 @@ Include `0.1.x -> 0.2.0` import migration and state that package dependency sele
 
 Add a `0.2.0` section describing package split, transactional switching, volume restoration, FVP/official sequential handoff and migration. Run:
 
-`rg -n "createErikaKernelPlaceholder|createMediaKitKernelPlaceholder|package:lee_video/.*(erika|fvp|media_kit|official)" README.md example lib test`
+`rg -n "createErikaKernelPlaceholder|createMediaKitKernelPlaceholder|package:leelando_video/.*(erika|fvp|media_kit|official)" README.md example lib test`
 
 Expected: no obsolete placeholder or concrete-core imports remain.
 
@@ -1091,7 +1091,7 @@ Create `tool/verify_kernel_packages.sh`:
 #!/bin/sh
 set -eu
 
-PACKAGES=". packages/lee_video_erika packages/lee_video_media_kit packages/lee_video_fvp packages/lee_video_video_player packages/lee_video_all"
+PACKAGES=". packages/leelando_video_erika packages/leelando_video_media_kit packages/leelando_video_fvp packages/leelando_video_video_player packages/leelando_video_all"
 
 flutter analyze
 flutter test
@@ -1122,11 +1122,11 @@ Expected: no matches in root `lib/`.
 
 ```bash
 flutter test
-flutter test packages/lee_video_erika/test
-flutter test packages/lee_video_media_kit/test
-flutter test packages/lee_video_fvp/test
-flutter test packages/lee_video_video_player/test
-flutter test packages/lee_video_all/test
+flutter test packages/leelando_video_erika/test
+flutter test packages/leelando_video_media_kit/test
+flutter test packages/leelando_video_fvp/test
+flutter test packages/leelando_video_video_player/test
+flutter test packages/leelando_video_all/test
 flutter test example/test
 ```
 
@@ -1158,7 +1158,7 @@ Expected: both builds succeed using the verified local Erika cache; device and s
 
 Run: `flutter build windows --debug` on a Windows host or CI runner.
 
-Expected: generated plugin registrant includes `lee_video`, Erika, FVP and MediaKit dependencies and the build exits 0. If the current macOS host cannot run this command, record it as a Windows CI requirement rather than claiming local verification.
+Expected: generated plugin registrant includes `leelando_video`, Erika, FVP and MediaKit dependencies and the build exits 0. If the current macOS host cannot run this command, record it as a Windows CI requirement rather than claiming local verification.
 
 - [ ] **Step 7: Run zero-warning publication dry-runs**
 

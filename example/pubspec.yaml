@@ -1,5 +1,5 @@
-name: lee_video_example
-description: 展示 lee_video 多内核播放器的功能和常见影视播放场景。
+name: leelando_video_example
+description: 展示 leelando_video 多内核播放器的功能和常见影视播放场景。
 publish_to: none
 version: 1.0.0+1
 resolution: workspace
@@ -10,8 +10,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  lee_video: ^0.2.0
-  lee_video_all: ^0.2.0
+  leelando_video: ^0.2.0
+  leelando_video_all: ^0.2.0
 
 dev_dependencies:
   flutter_test:

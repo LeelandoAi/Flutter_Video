@@ -1,8 +1,8 @@
-# Lee Video 可插拔播放器内核设计
+# Leelando Video 可插拔播放器内核设计
 
 ## 背景
 
-`lee_video 0.1.0` 已经通过 `VideoKernelRegistry` 支持运行时选择 Erika、MediaKit、FVP 和 Flutter 官方 Video Player，但根包仍直接依赖全部播放器 SDK。业务即使只注册一个内核，其依赖图和最终平台产物仍会包含其他内核，因此当前实现只完成了运行时选择，没有完成构建期可插拔。
+`leelando_video 0.1.0` 已经通过 `VideoKernelRegistry` 支持运行时选择 Erika、MediaKit、FVP 和 Flutter 官方 Video Player，但根包仍直接依赖全部播放器 SDK。业务即使只注册一个内核，其依赖图和最终平台产物仍会包含其他内核，因此当前实现只完成了运行时选择，没有完成构建期可插拔。
 
 本次改造目标是让业务同时获得两层能力：
 
@@ -11,7 +11,7 @@
 
 ## 目标
 
-- `lee_video` 核心包不再依赖任何具体播放器 SDK。
+- `leelando_video` 核心包不再依赖任何具体播放器 SDK。
 - Erika、MediaKit、FVP 和 Flutter 官方 Video Player 分别由独立包提供。
 - 业务只添加需要的内核包，未添加的内核不进入依赖图和平台构建产物。
 - 四个内核可以同时添加依赖并注册到同一个 `VideoKernelRegistry`。
@@ -32,14 +32,14 @@
 
 | 包名 | 职责 | 主要依赖 |
 | --- | --- | --- |
-| `lee_video` | 统一模型、控制器、播放器 UI、内核协议、注册表、全屏平台能力 | Flutter SDK |
-| `lee_video_erika` | Erika 适配器与工厂 | `lee_video`、`erika_flutter` |
-| `lee_video_media_kit` | MediaKit 适配器与工厂 | `lee_video`、`media_kit`、`media_kit_video`、`media_kit_libs_video` |
-| `lee_video_fvp` | FVP/libmdk 适配器、平台接管与恢复 | `lee_video`、`fvp`、`video_player` |
-| `lee_video_video_player` | Flutter 官方 Video Player 适配器 | `lee_video`、`video_player` |
-| `lee_video_all` | 全量依赖和四内核便捷工厂 | 上述四个内核包 |
+| `leelando_video` | 统一模型、控制器、播放器 UI、内核协议、注册表、全屏平台能力 | Flutter SDK |
+| `leelando_video_erika` | Erika 适配器与工厂 | `leelando_video`、`erika_flutter` |
+| `leelando_video_media_kit` | MediaKit 适配器与工厂 | `leelando_video`、`media_kit`、`media_kit_video`、`media_kit_libs_video` |
+| `leelando_video_fvp` | FVP/libmdk 适配器、平台接管与恢复 | `leelando_video`、`fvp`、`video_player` |
+| `leelando_video_video_player` | Flutter 官方 Video Player 适配器 | `leelando_video`、`video_player` |
+| `leelando_video_all` | 全量依赖和四内核便捷工厂 | 上述四个内核包 |
 
-根目录继续作为 `lee_video` 核心包，独立内核包放在 `packages/` 下。`example/` 加入 workspace，并通过本地 workspace 解析全部包。
+根目录继续作为 `leelando_video` 核心包，独立内核包放在 `packages/` 下。`example/` 加入 workspace，并通过本地 workspace 解析全部包。
 
 核心包保留 `FakeVideoKernelAdapter`，仅用于测试、自定义内核示例和无平台后端的 UI 验证。它不引入第三方播放器依赖。
 
@@ -50,9 +50,9 @@
 每个内核包只导出自身描述符、适配器和注册工厂。业务通过依赖和导入决定可用内核：
 
 ```dart
-import 'package:lee_video/lee_video.dart';
-import 'package:lee_video_erika/lee_video_erika.dart';
-import 'package:lee_video_media_kit/lee_video_media_kit.dart';
+import 'package:leelando_video/leelando_video.dart';
+import 'package:leelando_video_erika/leelando_video_erika.dart';
+import 'package:leelando_video_media_kit/leelando_video_media_kit.dart';
 
 final controller = UnifiedVideoController(
   registry: VideoKernelRegistry(
@@ -64,11 +64,11 @@ final controller = UnifiedVideoController(
 );
 ```
 
-未添加 `lee_video_fvp` 和 `lee_video_video_player` 时，这两个内核及其原生依赖不会进入应用。
+未添加 `leelando_video_fvp` 和 `leelando_video_video_player` 时，这两个内核及其原生依赖不会进入应用。
 
 ### 全量便捷注册
 
-`lee_video_all` 提供便捷工厂，但不隐藏注册结果：
+`leelando_video_all` 提供便捷工厂，但不隐藏注册结果：
 
 ```dart
 final controller = UnifiedVideoController(
@@ -163,9 +163,9 @@ FVP 激活时调用 `fvp.registerWith()`。FVP 释放完成后，通过传入不
 
 ## 向后兼容与迁移
 
-该拆分会移除 `package:lee_video/lee_video.dart` 中四个具体内核工厂的导出，因此发布为 `0.2.0`。`0.1.x` 用户迁移方式：
+该拆分会将原 `lee_video` 包迁移为 `leelando_video`，并移除核心入口中四个具体内核工厂的导出，因此发布为 `0.2.0`。原 `lee_video 0.1.x` 用户迁移方式：
 
-1. 保留 `lee_video` 依赖并升级到 `^0.2.0`。
+1. 保留 `leelando_video` 依赖并升级到 `^0.2.0`。
 2. 为实际使用的内核添加对应独立包。
 3. 修改具体内核工厂的 import，注册代码结构保持不变。
 
@@ -173,7 +173,7 @@ FVP 激活时调用 `fvp.registerWith()`。FVP 释放完成后，通过传入不
 
 ## Demo
 
-Demo 使用 `lee_video_all` 验证四内核均已注册，并保留现有 GSY 场景页面。内核设置菜单从 `controller.availableKernels` 读取内容，不再硬编码名称。
+Demo 使用 `leelando_video_all` 验证四内核均已注册，并保留现有 GSY 场景页面。内核设置菜单从 `controller.availableKernels` 读取内容，不再硬编码名称。
 
 重点验证：
 
@@ -206,25 +206,25 @@ Demo 使用 `lee_video_all` 验证四内核均已注册，并保留现有 GSY �
 
 - 最小核心包示例构建。
 - 每个独立内核包分别执行 Android、iOS、macOS、Windows 可用平台构建。
-- `lee_video_all` Demo 执行四内核切换场景。
+- `leelando_video_all` Demo 执行四内核切换场景。
 - 每个包执行 `dart pub publish --dry-run`，要求零警告。
 
 ## 发布顺序
 
 多包版本统一为 `0.2.0`，按依赖从底层到上层发布：
 
-1. `lee_video 0.2.0`
-2. `lee_video_erika 0.2.0`
-3. `lee_video_media_kit 0.2.0`
-4. `lee_video_fvp 0.2.0`
-5. `lee_video_video_player 0.2.0`
-6. `lee_video_all 0.2.0`
+1. `leelando_video 0.2.0`
+2. `leelando_video_erika 0.2.0`
+3. `leelando_video_media_kit 0.2.0`
+4. `leelando_video_fvp 0.2.0`
+5. `leelando_video_video_player 0.2.0`
+6. `leelando_video_all 0.2.0`
 
-发布每个上层包前等待 pub.dev 完成下层包索引。仓库后续为每个包配置独立标签，例如 `lee_video_fvp-v0.2.0`，以便启用 pub.dev 官方 GitHub Actions 自动发布。
+发布每个上层包前等待 pub.dev 完成下层包索引。仓库后续为每个包配置独立标签，例如 `leelando_video_fvp-v0.2.0`，以便启用 pub.dev 官方 GitHub Actions 自动发布。
 
 ## 验收标准
 
-- 核心 `lee_video` 的依赖图中不存在 Erika、MediaKit、FVP 或 `video_player`。
+- 核心 `leelando_video` 的依赖图中不存在 Erika、MediaKit、FVP 或 `video_player`。
 - 业务只依赖一个内核包时，其他内核不出现在 `flutter pub deps` 和平台插件清单中。
 - 四个内核可同时注册，并在单个播放器 View 中逐个切换。
 - 播放中切核后进度误差不超过 1 秒，播放/暂停、倍速、缩放、音量和全屏状态保持。

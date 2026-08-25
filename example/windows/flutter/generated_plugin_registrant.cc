@@ -8,7 +8,7 @@
 
 #include <erika_flutter/erika_flutter_plugin_c_api.h>
 #include <fvp/fvp_plugin_c_api.h>
-#include <lee_video/lee_video_plugin_c_api.h>
+#include <leelando_video/leelando_video_plugin_c_api.h>
 #include <media_kit_libs_windows_video/media_kit_libs_windows_video_plugin_c_api.h>
 #include <media_kit_video/media_kit_video_plugin_c_api.h>
 
@@ -17,8 +17,8 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("ErikaFlutterPluginCApi"));
   FvpPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FvpPluginCApi"));
-  LeeVideoPluginCApiRegisterWithRegistrar(
-      registry->GetRegistrarForPlugin("LeeVideoPluginCApi"));
+  LeelandoVideoPluginCApiRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("LeelandoVideoPluginCApi"));
   MediaKitLibsWindowsVideoPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("MediaKitLibsWindowsVideoPluginCApi"));
   MediaKitVideoPluginCApiRegisterWithRegistrar(

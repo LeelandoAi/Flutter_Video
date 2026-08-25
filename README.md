@@ -1,26 +1,26 @@
-# Lee Video
+# Leelando Video
 
 一个面向 Android、iOS、Windows、macOS 的统一聚合影视播放器库。当前实现已落地核心 API、内核抽象、默认播放器 UI、fake 测试内核、Media Kit/libmpv 适配器、FVP/libmdk 适配器、官方 Video Player 适配器和 Erika/Rust Renderer 适配器。
 
 ## 安装与内核选择
 
-`lee_video` 只提供统一控制器、内核协议和播放器 UI，不携带具体播放引擎。应用在 `pubspec.yaml` 中选择的内核包，决定最终产物会内置哪些原生播放引擎；未依赖的包不会被注册，也不会被构建进应用。
+`leelando_video` 只提供统一控制器、内核协议和播放器 UI，不携带具体播放引擎。应用在 `pubspec.yaml` 中选择的内核包，决定最终产物会内置哪些原生播放引擎；未依赖的包不会被注册，也不会被构建进应用。
 
 ### 路径一：核心包加按需内核包
 
-适合控制包体和原生依赖范围的应用。下面示例只安装 Media Kit 与官方 Video Player；可按同样方式加入 `lee_video_fvp` 或 `lee_video_erika`。
+适合控制包体和原生依赖范围的应用。下面示例只安装 Media Kit 与官方 Video Player；可按同样方式加入 `leelando_video_fvp` 或 `leelando_video_erika`。
 
 ```yaml
 dependencies:
-  lee_video: ^0.2.0
-  lee_video_media_kit: ^0.2.0
-  lee_video_video_player: ^0.2.0
+  leelando_video: ^0.2.0
+  leelando_video_media_kit: ^0.2.0
+  leelando_video_video_player: ^0.2.0
 ```
 
 ```dart
-import 'package:lee_video/lee_video.dart';
-import 'package:lee_video_media_kit/lee_video_media_kit.dart';
-import 'package:lee_video_video_player/lee_video_video_player.dart';
+import 'package:leelando_video/leelando_video.dart';
+import 'package:leelando_video_media_kit/leelando_video_media_kit.dart';
+import 'package:leelando_video_video_player/leelando_video_video_player.dart';
 
 final registry = VideoKernelRegistry(
   kernels: <RegisteredVideoKernel>[
@@ -30,17 +30,17 @@ final registry = VideoKernelRegistry(
 );
 ```
 
-### 路径二：全量 `lee_video_all` 包
+### 路径二：全量 `leelando_video_all` 包
 
-适合需要一次启用全部官方适配器的示例或应用。`lee_video_all` 的公共入口同时导出核心 API 和四个内核，并提供稳定顺序的全量工厂函数。
+适合需要一次启用全部官方适配器的示例或应用。`leelando_video_all` 的公共入口同时导出核心 API 和四个内核，并提供稳定顺序的全量工厂函数。
 
 ```yaml
 dependencies:
-  lee_video_all: ^0.2.0
+  leelando_video_all: ^0.2.0
 ```
 
 ```dart
-import 'package:lee_video_all/lee_video_all.dart';
+import 'package:leelando_video_all/leelando_video_all.dart';
 
 final registry = VideoKernelRegistry(kernels: createAllVideoKernels());
 ```
@@ -53,12 +53,12 @@ final registry = VideoKernelRegistry(kernels: createAllVideoKernels());
 
 ```yaml
 dependencies:
-  lee_video: ^0.2.0
+  leelando_video: ^0.2.0
 ```
 
 ```dart
 import 'package:flutter/widgets.dart';
-import 'package:lee_video/lee_video.dart';
+import 'package:leelando_video/leelando_video.dart';
 
 abstract interface class AppVideoEngine {
   UnifiedVideoLifecycle get lifecycle;
@@ -234,7 +234,7 @@ flutter run
 ## 核心用法
 
 ```dart
-import 'package:lee_video_all/lee_video_all.dart';
+import 'package:leelando_video_all/leelando_video_all.dart';
 
 final controller = UnifiedVideoController(
   registry: VideoKernelRegistry(kernels: createAllVideoKernels()),
@@ -369,18 +369,18 @@ demo 打开播放源后会自动调用 `play()`，并通过控制器定时读取
 - `2.0`
 - `3.0`
 
-## 从 0.1.x 迁移到 0.2.0
+## 从 `lee_video` 0.1.x 迁移到 `leelando_video` 0.2.0
 
-0.2.0 将具体播放引擎从核心包拆出。0.1.x 中只从 `lee_video` 导入并注册具体工厂函数的写法，需要改为：核心包的 import 仅保留给 `UnifiedVideoController`、`VideoSource`、`VideoKernelRegistry` 和 UI；具体工厂函数改从对应内核包或 `lee_video_all` 导入。
+`leelando_video` 是 `lee_video` 的新包名。0.2.0 同时将具体播放引擎从核心包拆出；原来只从 `package:lee_video/lee_video.dart` 导入并注册具体工厂函数的写法，需要改为：核心包的 import 仅保留给 `UnifiedVideoController`、`VideoSource`、`VideoKernelRegistry` 和 UI，具体工厂函数改从对应 `leelando_video_*` 内核包或 `leelando_video_all` 导入。
 
 ```dart
 // 0.2.0：一次启用全部内核时使用全量公共入口。
-import 'package:lee_video_all/lee_video_all.dart';
+import 'package:leelando_video_all/leelando_video_all.dart';
 
 final registry = VideoKernelRegistry(kernels: createAllVideoKernels());
 ```
 
-若采用按需安装，请把旧注册列表替换为对应包的工厂函数，例如 `createMediaKitVideoKernel()` 来自 `lee_video_media_kit`，`createFvpVideoKernel()` 来自 `lee_video_fvp`，`createOfficialVideoPlayerKernel()` 来自 `lee_video_video_player`，`createErikaVideoKernel()` 来自 `lee_video_erika`。移除旧的 Erika 占位工厂函数；0.2.0 不再提供占位内核。
+若采用按需安装，请把旧注册列表替换为对应包的工厂函数，例如 `createMediaKitVideoKernel()` 来自 `leelando_video_media_kit`，`createFvpVideoKernel()` 来自 `leelando_video_fvp`，`createOfficialVideoPlayerKernel()` 来自 `leelando_video_video_player`，`createErikaVideoKernel()` 来自 `leelando_video_erika`。移除旧的 Erika 占位工厂函数；0.2.0 不再提供占位内核。
 
 已有业务应继续用 `VideoSource` 代替后端专属播放源参数，用 `UnifiedVideoController` 统一播放、暂停、跳转、音量、倍速、缩放和全屏，并用 `UnifiedVideoState` 替代后端专属状态流。切核失败时捕获 `KernelSwitchException`；状态中的 `lastKernelSwitchError` 会说明原内核是否已成功回滚。
 

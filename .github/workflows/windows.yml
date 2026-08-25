@@ -45,11 +45,11 @@ jobs:
         run: |
           $packages = @(
             ".",
-            "packages/lee_video_erika",
-            "packages/lee_video_media_kit",
-            "packages/lee_video_fvp",
-            "packages/lee_video_video_player",
-            "packages/lee_video_all",
+            "packages/leelando_video_erika",
+            "packages/leelando_video_media_kit",
+            "packages/leelando_video_fvp",
+            "packages/leelando_video_video_player",
+            "packages/leelando_video_all",
             "example"
           )
           foreach ($package in $packages) {

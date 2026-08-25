@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lee_video_example/main.dart';
+import 'package:leelando_video_example/main.dart';
 
 void main() {
   test('Demo 同时注册四个可切换内核', () {

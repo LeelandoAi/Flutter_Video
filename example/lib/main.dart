@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:lee_video_all/lee_video_all.dart';
+import 'package:leelando_video_all/leelando_video_all.dart';
 
 VideoKernelRegistry createDemoKernelRegistry() {
   return VideoKernelRegistry(kernels: createAllVideoKernels());

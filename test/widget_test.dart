@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lee_video/lee_video.dart';
+import 'package:leelando_video/leelando_video.dart';
 
 void main() {
   late _DelayedOpenVideoKernelAdapter delayedSwitchAdapter;
@@ -321,7 +321,7 @@ void main() {
   });
 
   testWidgets('平台全屏失败时回滚播放器全屏状态和 Overlay', (WidgetTester tester) async {
-    const MethodChannel channel = MethodChannel('lee_video/fullscreen');
+    const MethodChannel channel = MethodChannel('leelando_video/fullscreen');
     final TestDefaultBinaryMessenger messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
@@ -350,7 +350,7 @@ void main() {
   });
 
   testWidgets('macOS 原生退出全屏后自动收回播放器 Overlay', (WidgetTester tester) async {
-    const MethodChannel channel = MethodChannel('lee_video/fullscreen');
+    const MethodChannel channel = MethodChannel('leelando_video/fullscreen');
     final TestDefaultBinaryMessenger messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(
@@ -402,7 +402,7 @@ void main() {
 
     await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .handlePlatformMessage(
-          'lee_video/fullscreen',
+          'leelando_video/fullscreen',
           const StandardMethodCodec().encodeMethodCall(
             const MethodCall('fullscreenChanged', <String, Object?>{
               'fullscreen': true,
@@ -416,7 +416,7 @@ void main() {
 
     await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .handlePlatformMessage(
-          'lee_video/fullscreen',
+          'leelando_video/fullscreen',
           const StandardMethodCodec().encodeMethodCall(
             const MethodCall('fullscreenChanged', <String, Object?>{
               'fullscreen': false,
@@ -434,7 +434,7 @@ void main() {
 
     await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .handlePlatformMessage(
-          'lee_video/fullscreen',
+          'leelando_video/fullscreen',
           const StandardMethodCodec().encodeMethodCall(
             const MethodCall('fullscreenChanged', <String, Object?>{
               'fullscreen': false,
@@ -444,7 +444,7 @@ void main() {
         );
     await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .handlePlatformMessage(
-          'lee_video/fullscreen',
+          'leelando_video/fullscreen',
           const StandardMethodCodec().encodeMethodCall(
             const MethodCall('fullscreenChanged', <String, Object?>{
               'fullscreen': true,
@@ -511,7 +511,7 @@ void main() {
     await tester.pumpAndSettle();
     await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .handlePlatformMessage(
-          'lee_video/fullscreen',
+          'leelando_video/fullscreen',
           const StandardMethodCodec().encodeMethodCall(
             const MethodCall('fullscreenChanged', <String, Object?>{
               'fullscreen': true,
@@ -521,7 +521,7 @@ void main() {
         );
     await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .handlePlatformMessage(
-          'lee_video/fullscreen',
+          'leelando_video/fullscreen',
           const StandardMethodCodec().encodeMethodCall(
             const MethodCall('fullscreenChanged', <String, Object?>{
               'fullscreen': false,

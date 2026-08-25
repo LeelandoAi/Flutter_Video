@@ -6,7 +6,7 @@ PODS:
     - Flutter
     - FlutterMacOS
     - mdk (~> 0.38.0)
-  - lee_video (0.1.0):
+  - leelando_video (0.2.0):
     - Flutter
   - mdk (0.38.0)
   - media_kit_libs_ios_video (1.0.4):
@@ -25,7 +25,7 @@ DEPENDENCIES:
   - erika_flutter (from `.symlinks/plugins/erika_flutter/ios`)
   - Flutter (from `Flutter`)
   - fvp (from `.symlinks/plugins/fvp/darwin`)
-  - lee_video (from `.symlinks/plugins/lee_video/ios`)
+  - leelando_video (from `.symlinks/plugins/leelando_video/ios`)
   - media_kit_libs_ios_video (from `.symlinks/plugins/media_kit_libs_ios_video/ios`)
   - media_kit_video (from `.symlinks/plugins/media_kit_video/ios`)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
@@ -43,8 +43,8 @@ EXTERNAL SOURCES:
     :path: Flutter
   fvp:
     :path: ".symlinks/plugins/fvp/darwin"
-  lee_video:
-    :path: ".symlinks/plugins/lee_video/ios"
+  leelando_video:
+    :path: ".symlinks/plugins/leelando_video/ios"
   media_kit_libs_ios_video:
     :path: ".symlinks/plugins/media_kit_libs_ios_video/ios"
   media_kit_video:
@@ -60,7 +60,7 @@ SPEC CHECKSUMS:
   erika_flutter: 4ce9e5e6ed2c74195dc54ee64ef4c6f67df9476d
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   fvp: 3b8bd5288c31057debb408b58d009f1ca10074f4
-  lee_video: dfb3522f7ca4c3a4a9c34f81e6d628cb3abb7e8d
+  leelando_video: 84a602f32668e7c2586e438743fc98c09bff18de
   mdk: d04505395fc419371541c5092b15b0e9c555b8a4
   media_kit_libs_ios_video: 5a18affdb97d1f5d466dc79988b13eff6c5e2854
   media_kit_video: 1746e198cb697d1ffb734b1d05ec429d1fcd1474
