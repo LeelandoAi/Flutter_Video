@@ -3,6 +3,8 @@ import 'package:lee_video/lee_video.dart';
 import 'package:media_kit/media_kit.dart' as mk;
 import 'package:media_kit_video/media_kit_video.dart' as mkv;
 
+import 'media_kit_mappings.dart';
+
 RegisteredVideoKernel createMediaKitVideoKernel() {
   return RegisteredVideoKernel(
     descriptor: mediaKitVideoKernelDescriptor,
@@ -30,38 +32,25 @@ const VideoKernelDescriptor mediaKitVideoKernelDescriptor =
       knownLimitations: <String>['首版映射基础播放、暂停、跳转、停止、倍速、画面和基础状态；高级轨道选择命令后续补齐。'],
     );
 
-class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
+final class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
   MediaKitVideoKernelAdapter({VideoKernelDescriptor? descriptor})
     : _descriptor = descriptor ?? mediaKitVideoKernelDescriptor;
 
   final VideoKernelDescriptor _descriptor;
   mk.Player? _player;
   mkv.VideoController? _videoController;
-  bool _videoSurfaceInitialized = false;
 
   @override
   VideoKernelDescriptor get descriptor => _descriptor;
 
   @override
   Future<void> initialize() async {
-    ensureMediaKitInitialized();
-    final mk.Player player = _player ??= createPlayer();
-    if (!_videoSurfaceInitialized) {
-      initializeVideoSurface(player);
-      _videoSurfaceInitialized = true;
+    if (_player != null) {
+      return;
     }
-  }
-
-  @protected
-  void ensureMediaKitInitialized() {
     mk.MediaKit.ensureInitialized();
-  }
-
-  @protected
-  mk.Player createPlayer() => mk.Player();
-
-  @protected
-  void initializeVideoSurface(mk.Player player) {
+    final mk.Player player = mk.Player();
+    _player = player;
     _videoController = mkv.VideoController(player);
   }
 
@@ -71,14 +60,11 @@ class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
     UnifiedVideoState state,
   ) async {
     final mk.Player player = _requirePlayer();
-    await player.open(
-      mk.Media(
-        _mediaUri(source),
-        httpHeaders: source.headers.isEmpty ? null : source.headers,
-        start: state.position > Duration.zero ? state.position : null,
-      ),
-      play: false,
+    final MediaKitOpenRequest request = createMediaKitOpenRequest(
+      source,
+      state.position,
     );
+    await player.open(request.media, play: request.play);
     return _stateFromPlayer(
       state.copyWith(
         lifecycle: UnifiedVideoLifecycle.ready,
@@ -142,7 +128,7 @@ class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
     double volume,
     UnifiedVideoState state,
   ) async {
-    await _requirePlayer().setVolume(volume * 100);
+    await _requirePlayer().setVolume(mediaKitNativeVolume(volume));
     return _stateFromPlayer(state).copyWith(volume: volume);
   }
 
@@ -172,7 +158,6 @@ class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
     final mk.Player? player = _player;
     _player = null;
     _videoController = null;
-    _videoSurfaceInitialized = false;
     await player?.dispose();
   }
 
@@ -210,18 +195,6 @@ class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
       speed: value.rate,
       clearError: true,
     );
-  }
-
-  String _mediaUri(VideoSource source) {
-    switch (source.type) {
-      case VideoSourceType.asset:
-        return 'asset:///${source.uri.path}';
-      case VideoSourceType.file:
-      case VideoSourceType.network:
-        return source.uri.toString();
-      case VideoSourceType.memory:
-        throw UnsupportedError('Media Kit 适配器不支持 memory 播放源。');
-    }
   }
 
   BoxFit _boxFitFor(UnifiedVideoFit fit) {
