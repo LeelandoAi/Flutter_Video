@@ -5,6 +5,7 @@
 /coverage/
 /openspec/
 /pubspec.lock
+# 核心发布归档排除 monorepo 子包；子包 dry-run 由 tool/verify_kernel_packages.sh 的 Git ceiling 隔离此父级规则。
 /packages/
 /docs/
 /tool/
