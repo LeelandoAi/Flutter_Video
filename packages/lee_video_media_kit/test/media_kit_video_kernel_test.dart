@@ -46,26 +46,43 @@ void main() {
     );
   });
 
+  test('MediaKit adapter 只创建、绑定并处置一次自有 Player', () async {
+    final _OwnedPlayerMediaKitVideoKernelAdapter adapter =
+        _OwnedPlayerMediaKitVideoKernelAdapter();
+
+    await adapter.initialize();
+    await adapter.initialize();
+
+    expect(adapter.createPlayerCalls, 1);
+    expect(adapter.initializeVideoSurfaceCalls, 1);
+    expect(adapter.surfacePlayer, same(adapter.ownedPlayer));
+
+    await adapter.dispose();
+    await adapter.dispose();
+
+    expect(adapter.platformPlayer.disposeCalls, 1);
+  });
+
   test('MediaKit 将统一音量乘 100 后调用原生接口', () async {
-    final _RecordingPlatformPlayer platformPlayer = _RecordingPlatformPlayer();
-    final MediaKitVideoKernelAdapter adapter = MediaKitVideoKernelAdapter(
-      nativePlayer: mk.Player(platformPlayer: platformPlayer),
-    );
+    final _OwnedPlayerMediaKitVideoKernelAdapter adapter =
+        _OwnedPlayerMediaKitVideoKernelAdapter();
+    await adapter.initialize();
+    addTearDown(adapter.dispose);
 
     final UnifiedVideoState result = await adapter.setVolume(
       0.42,
       const UnifiedVideoState(volume: 1),
     );
 
-    expect(platformPlayer.volume, 42);
+    expect(adapter.platformPlayer.volume, 42);
     expect(result.volume, 0.42);
   });
 
   test('MediaKit 将非零恢复进度保留为 Media start 提示', () async {
-    final _RecordingPlatformPlayer platformPlayer = _RecordingPlatformPlayer();
-    final MediaKitVideoKernelAdapter adapter = MediaKitVideoKernelAdapter(
-      nativePlayer: mk.Player(platformPlayer: platformPlayer),
-    );
+    final _OwnedPlayerMediaKitVideoKernelAdapter adapter =
+        _OwnedPlayerMediaKitVideoKernelAdapter();
+    await adapter.initialize();
+    addTearDown(adapter.dispose);
     const Duration position = Duration(seconds: 37);
     final VideoSource source = VideoSource.network(
       'https://example.com/episode.mp4',
@@ -73,10 +90,35 @@ void main() {
 
     await adapter.open(source, const UnifiedVideoState(position: position));
 
-    final mk.Media media = platformPlayer.openedPlayable! as mk.Media;
+    final mk.Media media = adapter.platformPlayer.openedPlayable! as mk.Media;
     expect(media.start, position);
-    expect(platformPlayer.openPlay, isFalse);
+    expect(adapter.platformPlayer.openPlay, isFalse);
   });
+}
+
+class _OwnedPlayerMediaKitVideoKernelAdapter
+    extends MediaKitVideoKernelAdapter {
+  final _RecordingPlatformPlayer platformPlayer = _RecordingPlatformPlayer();
+  late final mk.Player ownedPlayer = mk.Player(platformPlayer: platformPlayer);
+
+  int createPlayerCalls = 0;
+  int initializeVideoSurfaceCalls = 0;
+  mk.Player? surfacePlayer;
+
+  @override
+  void ensureMediaKitInitialized() {}
+
+  @override
+  mk.Player createPlayer() {
+    createPlayerCalls += 1;
+    return ownedPlayer;
+  }
+
+  @override
+  void initializeVideoSurface(mk.Player player) {
+    initializeVideoSurfaceCalls += 1;
+    surfacePlayer = player;
+  }
 }
 
 class _RecordingPlatformPlayer extends mk.PlatformPlayer {
@@ -86,6 +128,7 @@ class _RecordingPlatformPlayer extends mk.PlatformPlayer {
   double? volume;
   mk.Playable? openedPlayable;
   bool? openPlay;
+  int disposeCalls = 0;
 
   @override
   Future<void> setVolume(double volume) async {
@@ -96,5 +139,11 @@ class _RecordingPlatformPlayer extends mk.PlatformPlayer {
   Future<void> open(mk.Playable playable, {bool play = true}) async {
     openedPlayable = playable;
     openPlay = play;
+  }
+
+  @override
+  Future<void> dispose() async {
+    disposeCalls += 1;
+    await super.dispose();
   }
 }

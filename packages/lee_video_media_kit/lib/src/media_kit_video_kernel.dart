@@ -31,24 +31,38 @@ const VideoKernelDescriptor mediaKitVideoKernelDescriptor =
     );
 
 class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
-  MediaKitVideoKernelAdapter({
-    VideoKernelDescriptor? descriptor,
-    mk.Player? nativePlayer,
-  }) : _descriptor = descriptor ?? mediaKitVideoKernelDescriptor,
-       _player = nativePlayer;
+  MediaKitVideoKernelAdapter({VideoKernelDescriptor? descriptor})
+    : _descriptor = descriptor ?? mediaKitVideoKernelDescriptor;
 
   final VideoKernelDescriptor _descriptor;
   mk.Player? _player;
   mkv.VideoController? _videoController;
+  bool _videoSurfaceInitialized = false;
 
   @override
   VideoKernelDescriptor get descriptor => _descriptor;
 
   @override
   Future<void> initialize() async {
+    ensureMediaKitInitialized();
+    final mk.Player player = _player ??= createPlayer();
+    if (!_videoSurfaceInitialized) {
+      initializeVideoSurface(player);
+      _videoSurfaceInitialized = true;
+    }
+  }
+
+  @protected
+  void ensureMediaKitInitialized() {
     mk.MediaKit.ensureInitialized();
-    _player ??= mk.Player();
-    _videoController ??= mkv.VideoController(_player!);
+  }
+
+  @protected
+  mk.Player createPlayer() => mk.Player();
+
+  @protected
+  void initializeVideoSurface(mk.Player player) {
+    _videoController = mkv.VideoController(player);
   }
 
   @override
@@ -155,9 +169,11 @@ class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
 
   @override
   Future<void> dispose() async {
-    await _player?.dispose();
+    final mk.Player? player = _player;
     _player = null;
     _videoController = null;
+    _videoSurfaceInitialized = false;
+    await player?.dispose();
   }
 
   mk.Player _requirePlayer() {
