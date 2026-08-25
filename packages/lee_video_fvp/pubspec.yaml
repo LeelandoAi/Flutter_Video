@@ -2,6 +2,8 @@ name: lee_video_fvp
 description: 基于 FVP 和 libmdk 的 lee_video 可插拔播放内核，覆盖移动端与桌面端的统一视频播放场景。
 version: 0.2.0
 resolution: workspace
+repository: https://github.com/LeelandoAi/Flutter_Video/tree/main/packages/lee_video_fvp
+issue_tracker: https://github.com/LeelandoAi/Flutter_Video/issues
 
 environment:
   sdk: ^3.12.2

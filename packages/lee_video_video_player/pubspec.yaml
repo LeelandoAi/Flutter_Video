@@ -2,6 +2,8 @@ name: lee_video_video_player
 description: 基于 Flutter 官方 video_player 的 lee_video 可插拔播放内核，支持移动端和 macOS 的常用视频播放场景。
 version: 0.2.0
 resolution: workspace
+repository: https://github.com/LeelandoAi/Flutter_Video/tree/main/packages/lee_video_video_player
+issue_tracker: https://github.com/LeelandoAi/Flutter_Video/issues
 
 environment:
   sdk: ^3.12.2
