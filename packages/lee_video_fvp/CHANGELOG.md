@@ -1,0 +1,6 @@
+## 0.2.0 - 2026-08-25
+
+- 首次发布独立可安装的 FVP 播放内核。
+- 提供私有 `VideoPlayerController` wrapper 和统一播放状态映射。
+- 支持与官方 `video_player` 适配器同注册、同 View 串行切换。
+- 在最终运行时租约释放后恢复先前的 `VideoPlayerPlatform`。

@@ -38,5 +38,6 @@ flutter:
         pluginClass: LeeVideoPluginCApi
 
 workspace:
+  - packages/lee_video_fvp
   - packages/lee_video_video_player
   - example

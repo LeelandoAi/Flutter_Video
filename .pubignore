@@ -9,7 +9,6 @@
 /docs/
 /tool/
 /lib/src/adapters/erika_video_kernel.dart
-/lib/src/adapters/fvp_video_kernel.dart
 /lib/src/adapters/media_kit_video_kernel.dart
 /android/local.properties
 *.iml
