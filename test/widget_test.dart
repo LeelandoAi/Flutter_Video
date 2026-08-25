@@ -736,9 +736,7 @@ void main() {
   testWidgets('失败状态显示错误和重试按钮', (WidgetTester tester) async {
     final UnifiedVideoController controller = UnifiedVideoController(
       registry: VideoKernelRegistry(
-        kernels: <RegisteredVideoKernel>[
-          createOfficialVideoPlayerKernelPlaceholder(),
-        ],
+        kernels: <RegisteredVideoKernel>[_createPlatformTestKernel()],
       ),
       platform: UnifiedVideoPlatform.windows,
       stateRefreshInterval: null,
@@ -814,6 +812,23 @@ void main() {
     expect(find.text('切换目标播放器内核失败，已恢复原内核。'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+}
+
+RegisteredVideoKernel _createPlatformTestKernel() {
+  const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+    id: 'video-player',
+    displayName: '平台测试内核',
+    supportedPlatforms: <UnifiedVideoPlatform>{
+      UnifiedVideoPlatform.android,
+      UnifiedVideoPlatform.ios,
+      UnifiedVideoPlatform.macos,
+    },
+    supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+  );
+  return RegisteredVideoKernel(
+    descriptor: descriptor,
+    create: () => FakeVideoKernelAdapter(descriptor: descriptor),
+  );
 }
 
 AnimatedOpacity _controlsOverlay(WidgetTester tester) {

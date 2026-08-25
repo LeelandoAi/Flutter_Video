@@ -2,6 +2,7 @@ name: lee_video_example
 description: 展示 lee_video 多内核播放器的功能和常见影视播放场景。
 publish_to: none
 version: 1.0.0+1
+resolution: workspace
 
 environment:
   sdk: ^3.12.2

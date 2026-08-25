@@ -1,5 +1,5 @@
-import '../kernel.dart';
-import '../models.dart';
+import 'package:lee_video/lee_video.dart';
+
 import 'video_player_kernel_base.dart';
 
 RegisteredVideoKernel createOfficialVideoPlayerKernel() {
@@ -34,4 +34,10 @@ const VideoKernelDescriptor officialVideoPlayerKernelDescriptor =
 class OfficialVideoPlayerKernelAdapter extends VideoPlayerKernelAdapterBase {
   @override
   VideoKernelDescriptor get descriptor => officialVideoPlayerKernelDescriptor;
+
+  @override
+  String get runtimeGroup => 'video-player-platform';
+
+  @override
+  String get runtimeIdentity => 'video-player-official';
 }

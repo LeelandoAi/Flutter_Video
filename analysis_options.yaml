@@ -9,6 +9,14 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  # Tasks 5、6、8 完成迁移后移除这些过渡排除项。
+  exclude:
+    - example/lib/main.dart
+    - lib/src/adapters/erika_video_kernel.dart
+    - lib/src/adapters/fvp_video_kernel.dart
+    - lib/src/adapters/media_kit_video_kernel.dart
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

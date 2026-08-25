@@ -1,5 +1,11 @@
 # 更新日志
 
+## 0.2.0 - 2026-08-25
+
+- 建立 Pub workspace，并将核心包依赖收敛为 Flutter SDK。
+- 将 Flutter 官方 `video_player` 内核拆分为独立可安装包 `lee_video_video_player`。
+- 核心公共 API 不再导出具体播放引擎或兼容占位入口。
+
 ## 0.1.0
 
 - 首次公开版本。

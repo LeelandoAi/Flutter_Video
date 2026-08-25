@@ -1,10 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:lee_video/lee_video.dart';
 import 'package:video_player/video_player.dart';
-
-import '../kernel.dart';
-import '../models.dart';
 
 abstract class VideoPlayerKernelAdapterBase extends VideoKernelAdapter {
   VideoPlayerController? _controller;
@@ -82,6 +80,16 @@ abstract class VideoPlayerKernelAdapterBase extends VideoKernelAdapter {
     await controller.pause();
     await controller.seekTo(Duration.zero);
     return stateFromController(state, UnifiedVideoLifecycle.idle);
+  }
+
+  @override
+  Future<UnifiedVideoState> setVolume(
+    double volume,
+    UnifiedVideoState state,
+  ) async {
+    final VideoPlayerController controller = requireController();
+    await controller.setVolume(volume);
+    return stateFromController(state).copyWith(volume: volume);
   }
 
   @override

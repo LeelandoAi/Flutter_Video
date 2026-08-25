@@ -379,7 +379,7 @@ void main() {
   test('注册表按偏好降级选择兼容内核并记录跳过历史', () async {
     final UnifiedVideoController player = controller(
       kernels: <RegisteredVideoKernel>[
-        createOfficialVideoPlayerKernelPlaceholder(),
+        _createPlatformTestKernel(),
         createFakeVideoKernel(),
       ],
       preference: const KernelPreference.ordered(<String>[
@@ -425,7 +425,7 @@ void main() {
   test('有序偏好可以限制只尝试显式列出的内核', () {
     final VideoKernelRegistry registry = VideoKernelRegistry(
       kernels: <RegisteredVideoKernel>[
-        createOfficialVideoPlayerKernelPlaceholder(),
+        _createPlatformTestKernel(),
         createFakeVideoKernel(),
       ],
     );
@@ -442,18 +442,9 @@ void main() {
     );
   });
 
-  test('Erika 兼容入口返回真实 Erika 适配器', () {
-    final RegisteredVideoKernel kernel = createErikaKernelPlaceholder();
-
-    expect(kernel.descriptor.id, 'erika');
-    expect(kernel.create(), isA<ErikaVideoKernelAdapter>());
-  });
-
   test('没有兼容内核时返回不支持内核诊断', () async {
     final UnifiedVideoController player = controller(
-      kernels: <RegisteredVideoKernel>[
-        createOfficialVideoPlayerKernelPlaceholder(),
-      ],
+      kernels: <RegisteredVideoKernel>[_createPlatformTestKernel()],
       platform: UnifiedVideoPlatform.windows,
     );
     addTearDown(player.dispose);
@@ -613,6 +604,23 @@ class _BlockedSwitchVideoKernelAdapter extends FakeVideoKernelAdapter {
     runtimeReleaseCount += 1;
     runtimeReleased.complete();
   }
+}
+
+RegisteredVideoKernel _createPlatformTestKernel() {
+  const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+    id: 'video-player',
+    displayName: '平台测试内核',
+    supportedPlatforms: <UnifiedVideoPlatform>{
+      UnifiedVideoPlatform.android,
+      UnifiedVideoPlatform.ios,
+      UnifiedVideoPlatform.macos,
+    },
+    supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+  );
+  return RegisteredVideoKernel(
+    descriptor: descriptor,
+    create: () => FakeVideoKernelAdapter(descriptor: descriptor),
+  );
 }
 
 class _DelayedSeekVideoKernelAdapter extends FakeVideoKernelAdapter {
