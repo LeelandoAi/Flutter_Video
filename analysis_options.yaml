@@ -9,11 +9,6 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
-analyzer:
-  # Task 8 完成 example 迁移后移除此过渡排除项。
-  exclude:
-    - example/lib/main.dart
-
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

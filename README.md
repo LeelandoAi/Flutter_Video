@@ -2,14 +2,82 @@
 
 一个面向 Android、iOS、Windows、macOS 的统一聚合影视播放器库。当前实现已落地核心 API、内核抽象、默认播放器 UI、fake 测试内核、Media Kit/libmpv 适配器、FVP/libmdk 适配器、官方 Video Player 适配器和 Erika/Rust Renderer 适配器。
 
-## 安装
+## 安装与内核选择
 
-```bash
-flutter pub add lee_video
+`lee_video` 只提供统一控制器、内核协议和播放器 UI，不携带具体播放引擎。应用在 `pubspec.yaml` 中选择的内核包，决定最终产物会内置哪些原生播放引擎；未依赖的包不会被注册，也不会被构建进应用。
+
+### 路径一：核心包加按需内核包
+
+适合控制包体和原生依赖范围的应用。下面示例只安装 Media Kit 与官方 Video Player；可按同样方式加入 `lee_video_fvp` 或 `lee_video_erika`。
+
+```yaml
+dependencies:
+  lee_video: ^0.2.0
+  lee_video_media_kit: ^0.2.0
+  lee_video_video_player: ^0.2.0
 ```
 
 ```dart
 import 'package:lee_video/lee_video.dart';
+import 'package:lee_video_media_kit/lee_video_media_kit.dart';
+import 'package:lee_video_video_player/lee_video_video_player.dart';
+
+final registry = VideoKernelRegistry(
+  kernels: <RegisteredVideoKernel>[
+    createMediaKitVideoKernel(),
+    createOfficialVideoPlayerKernel(),
+  ],
+);
+```
+
+### 路径二：全量 `lee_video_all` 包
+
+适合需要一次启用全部官方适配器的示例或应用。`lee_video_all` 的公共入口同时导出核心 API 和四个内核，并提供稳定顺序的全量工厂函数。
+
+```yaml
+dependencies:
+  lee_video_all: ^0.2.0
+```
+
+```dart
+import 'package:lee_video_all/lee_video_all.dart';
+
+final registry = VideoKernelRegistry(kernels: createAllVideoKernels());
+```
+
+`createAllVideoKernels()` 固定返回 `erika`、`media-kit`、`fvp`、`video-player`，便于 Demo 和菜单展示一致的内核顺序。
+
+### 路径三：自定义适配器
+
+自定义原生播放器时，仅依赖核心包并注册自己的 `RegisteredVideoKernel`。下例使用核心包导出的测试适配器验证注册协议；生产实现应继承 `VideoKernelAdapter`，将 `initialize`、`open`、`snapshot`、播放控制、`buildSurface` 和 `dispose` 映射到实际 SDK。
+
+```yaml
+dependencies:
+  lee_video: ^0.2.0
+```
+
+```dart
+import 'package:lee_video/lee_video.dart';
+
+const acmeDescriptor = VideoKernelDescriptor(
+  id: 'acme',
+  displayName: 'Acme 播放器',
+  supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+  supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+);
+
+class AcmeVideoKernelAdapter extends FakeVideoKernelAdapter {
+  AcmeVideoKernelAdapter() : super(descriptor: acmeDescriptor);
+}
+
+final registry = VideoKernelRegistry(
+  kernels: <RegisteredVideoKernel>[
+    RegisteredVideoKernel(
+      descriptor: acmeDescriptor,
+      create: AcmeVideoKernelAdapter.new,
+    ),
+  ],
+);
 ```
 
 最低环境要求：Flutter 3.44、Dart 3.12.2、Android API 26、iOS 13 和 macOS 10.15。Windows 需要 Flutter 支持的 Visual Studio C++ 桌面工具链。
@@ -38,18 +106,10 @@ flutter run
 ## 核心用法
 
 ```dart
-import 'package:lee_video/lee_video.dart';
+import 'package:lee_video_all/lee_video_all.dart';
 
 final controller = UnifiedVideoController(
-  registry: VideoKernelRegistry(
-    kernels: [
-      createFakeVideoKernel(),
-      createMediaKitVideoKernel(),
-      createFvpVideoKernel(),
-      createOfficialVideoPlayerKernel(),
-      createErikaKernelPlaceholder(),
-    ],
-  ),
+  registry: VideoKernelRegistry(kernels: createAllVideoKernels()),
   preference: KernelPreference.ordered(
     defaultNetworkKernelOrder,
     includeUnspecified: false,
@@ -141,7 +201,9 @@ WEBVTT
 
 当前已完成的真实内核是 Media Kit/libmpv、FVP/libmdk、Flutter 官方 Video Player 和 Erika/Rust Renderer；Fake 只用于单元测试和 UI 验证。Erika 适配器直接封装 `erika_flutter` 的 `ErikaPlayer` 和 `ErikaVideoView`，播放、暂停、seek、倍速、画面承载和事件状态都来自 Erika 后端，不再委托 Media Kit。
 
-切换播放器内核时，控制器会保留当前播放源、播放进度、倍速和播放/暂停状态；切到 Media Kit/Erika 这类打开后需要异步 ready 的后端时，会带起播点打开并重试 seek，避免从 0 秒重新播放。
+切换播放器内核是事务操作：控制器会保留当前播放源、播放进度、倍速、缩放、音量、播放/暂停和全屏状态；切到 Media Kit/Erika 这类打开后需要异步 ready 的后端时，会带起播点打开并重试 seek，避免从 0 秒重新播放。目标内核打开或恢复失败时，控制器会重新打开原内核并恢复同一份状态；只有原内核也恢复失败时才进入 `failed` 状态。
+
+FVP 会替换 `video_player` 平台实现，因此 FVP 与 Flutter 官方 Video Player 共享同一运行时组。同一个播放器视图在两者之间只能串行切换，控制器会在激活目标内核前释放前一内核并完成运行时交接；不要让不同播放器视图并发占用 FVP 和官方 `video_player`。
 
 Erika 构建依赖官方原生插件和 native library。首次构建会从 AimesSoft/Erika GitHub Releases 下载与 `erika_flutter` 版本匹配并经过 SHA-256 校验的预编译运行库，因此构建机必须能够访问 GitHub Release Assets；Flutter asset 播放会先复制到系统临时文件，再交给 Erika 以本地路径打开。
 
@@ -179,22 +241,26 @@ demo 打开播放源后会自动调用 `play()`，并通过控制器定时读取
 - `2.0`
 - `3.0`
 
-## 迁移建议
+## 从 0.1.x 迁移到 0.2.0
 
-如果现有应用直接使用 `media_kit`、`fvp` 或 `video_player` 的后端控制器，建议先迁移到 `UnifiedVideoController`：
+0.2.0 将具体播放引擎从核心包拆出。0.1.x 中只从 `lee_video` 导入并注册具体工厂函数的写法，需要改为：核心包的 import 仅保留给 `UnifiedVideoController`、`VideoSource`、`VideoKernelRegistry` 和 UI；具体工厂函数改从对应内核包或 `lee_video_all` 导入。
 
-1. 用 `VideoSource` 替代后端专属播放源参数。
-2. 通过 `VideoKernelRegistry` 注册需要的内核。
-3. 用 `UnifiedVideoController` 统一处理播放、暂停、跳转、倍速、缩放和全屏。
-4. 用 `UnifiedVideoState` 替代后端专属状态流。
-5. 逐步把自定义 UI 改为依赖统一控制器，或者直接使用 `UnifiedVideoPlayer`。
+```dart
+// 0.2.0：一次启用全部内核时使用全量公共入口。
+import 'package:lee_video_all/lee_video_all.dart';
+
+final registry = VideoKernelRegistry(kernels: createAllVideoKernels());
+```
+
+若采用按需安装，请把旧注册列表替换为对应包的工厂函数，例如 `createMediaKitVideoKernel()` 来自 `lee_video_media_kit`，`createFvpVideoKernel()` 来自 `lee_video_fvp`，`createOfficialVideoPlayerKernel()` 来自 `lee_video_video_player`，`createErikaVideoKernel()` 来自 `lee_video_erika`。移除旧的 Erika 占位工厂函数；0.2.0 不再提供占位内核。
+
+已有业务应继续用 `VideoSource` 代替后端专属播放源参数，用 `UnifiedVideoController` 统一播放、暂停、跳转、音量、倍速、缩放和全屏，并用 `UnifiedVideoState` 替代后端专属状态流。切核失败时捕获 `KernelSwitchException`；状态中的 `lastKernelSwitchError` 会说明原内核是否已成功回滚。
 
 ## 验证
 
 ```bash
 flutter analyze
 flutter test
-dart pub publish --dry-run
 
 cd example
 flutter build apk --debug

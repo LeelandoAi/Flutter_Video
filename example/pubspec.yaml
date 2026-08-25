@@ -10,8 +10,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  lee_video:
-    path: ../
+  lee_video: ^0.2.0
+  lee_video_all: ^0.2.0
 
 dev_dependencies:
   flutter_test:

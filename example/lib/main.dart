@@ -3,7 +3,11 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:lee_video/lee_video.dart';
+import 'package:lee_video_all/lee_video_all.dart';
+
+VideoKernelRegistry createDemoKernelRegistry() {
+  return VideoKernelRegistry(kernels: createAllVideoKernels());
+}
 
 void main() {
   runApp(const DemoApp());
@@ -69,14 +73,7 @@ class _DemoHomePageState extends State<DemoHomePage>
   void initState() {
     super.initState();
     _controller = UnifiedVideoController(
-      registry: VideoKernelRegistry(
-        kernels: <RegisteredVideoKernel>[
-          createMediaKitVideoKernel(),
-          createFvpVideoKernel(),
-          createOfficialVideoPlayerKernel(),
-          createErikaKernelPlaceholder(),
-        ],
-      ),
+      registry: createDemoKernelRegistry(),
       preference: KernelPreference.ordered(
         _sources.first.preferredKernelIds,
         includeUnspecified: false,
