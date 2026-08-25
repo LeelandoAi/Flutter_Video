@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lee_video/lee_video.dart';
 
@@ -27,6 +29,44 @@ void main() {
 
     await lease.release();
     expect(adapter.deactivationCount, 1);
+  });
+
+  test('无运行时组的租约释放不等待分组协调器队列', () async {
+    final coordinator = VideoKernelRuntimeCoordinator();
+    final isolated = _RuntimeFakeAdapter(group: null, identity: 'isolated');
+    final isolatedLease = await coordinator.acquire(isolated);
+    final blocked = _BlockingRuntimeFakeAdapter();
+    final blockedAcquire = coordinator.acquire(blocked);
+    await blocked.activationStarted.future;
+    final isolatedRelease = isolatedLease.release();
+
+    try {
+      expect(isolated.deactivationCount, 1);
+    } finally {
+      blocked.allowActivation.complete();
+      final blockedLease = await blockedAcquire;
+      await isolatedRelease;
+      await blockedLease.release();
+    }
+  });
+
+  test('无运行时组的激活不等待分组协调器队列', () async {
+    final coordinator = VideoKernelRuntimeCoordinator();
+    final blocked = _BlockingRuntimeFakeAdapter();
+    final blockedAcquire = coordinator.acquire(blocked);
+    await blocked.activationStarted.future;
+    final isolated = _RuntimeFakeAdapter(group: null, identity: 'isolated');
+    final isolatedAcquire = coordinator.acquire(isolated);
+
+    try {
+      expect(isolated.activationCount, 1);
+    } finally {
+      blocked.allowActivation.complete();
+      final blockedLease = await blockedAcquire;
+      final isolatedLease = await isolatedAcquire;
+      await blockedLease.release();
+      await isolatedLease.release();
+    }
   });
 
   test('同组不同运行时身份并发占用时抛出冲突', () async {
@@ -124,5 +164,19 @@ class _RuntimeFakeAdapter extends FakeVideoKernelAdapter {
   @override
   Future<void> deactivateRuntime() async {
     deactivationCount += 1;
+  }
+}
+
+class _BlockingRuntimeFakeAdapter extends _RuntimeFakeAdapter {
+  _BlockingRuntimeFakeAdapter() : super(group: 'platform', identity: 'blocked');
+
+  final Completer<void> activationStarted = Completer<void>();
+  final Completer<void> allowActivation = Completer<void>();
+
+  @override
+  Future<void> activateRuntime() async {
+    activationStarted.complete();
+    await allowActivation.future;
+    await super.activateRuntime();
   }
 }

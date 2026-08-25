@@ -28,15 +28,14 @@ class VideoKernelRuntimeCoordinator {
   Future<void> _operation = Future<void>.value();
 
   Future<VideoKernelRuntimeLease> acquire(VideoKernelAdapter adapter) {
-    return _serialize<VideoKernelRuntimeLease>(() async {
-      final String? group = adapter.runtimeGroup;
-      if (group == null) {
-        await adapter.activateRuntime();
-        return _VideoKernelRuntimeLease(
-          () => _serialize<void>(adapter.deactivateRuntime),
-        );
-      }
+    final String? group = adapter.runtimeGroup;
+    if (group == null) {
+      return adapter.activateRuntime().then<VideoKernelRuntimeLease>(
+        (_) => _VideoKernelRuntimeLease(adapter.deactivateRuntime),
+      );
+    }
 
+    return _serialize<VideoKernelRuntimeLease>(() async {
       final _RuntimeSlot? activeSlot = _slots[group];
       if (activeSlot != null) {
         if (activeSlot.identity != adapter.runtimeIdentity) {
