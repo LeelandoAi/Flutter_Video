@@ -1,5 +1,5 @@
 name: lee_video
-description: A unified multi-kernel Flutter video player for Android, iOS, macOS, and Windows.
+description: 面向 Flutter 的可插拔统一影视播放器核心，提供跨平台播放协议、统一状态控制器和播放器 UI，由应用按需安装并注册具体播放内核。
 version: 0.2.0
 repository: https://github.com/LeelandoAi/Flutter_Video
 issue_tracker: https://github.com/LeelandoAi/Flutter_Video/issues
