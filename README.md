@@ -49,7 +49,7 @@ final registry = VideoKernelRegistry(kernels: createAllVideoKernels());
 
 ### 路径三：自定义适配器
 
-自定义原生播放器时，仅依赖核心包并注册自己的 `RegisteredVideoKernel`。下例使用核心包导出的测试适配器验证注册协议；生产实现应继承 `VideoKernelAdapter`，将 `initialize`、`open`、`snapshot`、播放控制、`buildSurface` 和 `dispose` 映射到实际 SDK。
+自定义原生播放器时，仅依赖核心包并注册自己的 `RegisteredVideoKernel`。下面是协议模板，不是现成播放器：应用需要让 `AppVideoEngine` 的每个方法对接实际 SDK，并将 SDK 回调转换为位置、时长、生命周期、倍速和音量。
 
 ```yaml
 dependencies:
@@ -57,28 +57,156 @@ dependencies:
 ```
 
 ```dart
+import 'package:flutter/widgets.dart';
 import 'package:lee_video/lee_video.dart';
 
-const acmeDescriptor = VideoKernelDescriptor(
-  id: 'acme',
-  displayName: 'Acme 播放器',
+abstract interface class AppVideoEngine {
+  UnifiedVideoLifecycle get lifecycle;
+  Duration get position;
+  Duration get duration;
+  double get speed;
+  double get volume;
+
+  Future<void> initialize();
+  Future<void> open(Uri uri, {required Map<String, String> headers});
+  Future<void> play();
+  Future<void> pause();
+  Future<void> seek(Duration position);
+  Future<void> stop();
+  Future<void> setSpeed(double speed);
+  Future<void> setVolume(double volume);
+  Widget buildSurface(BuildContext context);
+  Future<void> dispose();
+}
+
+typedef AppVideoEngineFactory = AppVideoEngine Function();
+
+const appVideoKernelDescriptor = VideoKernelDescriptor(
+  id: 'app-sdk',
+  displayName: '应用 SDK 播放器',
   supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
   supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
 );
 
-class AcmeVideoKernelAdapter extends FakeVideoKernelAdapter {
-  AcmeVideoKernelAdapter() : super(descriptor: acmeDescriptor);
+RegisteredVideoKernel createAppVideoKernel(
+  AppVideoEngineFactory createEngine,
+) {
+  return RegisteredVideoKernel(
+    descriptor: appVideoKernelDescriptor,
+    create: () => AppVideoKernelAdapter(createEngine()),
+  );
 }
 
-final registry = VideoKernelRegistry(
-  kernels: <RegisteredVideoKernel>[
-    RegisteredVideoKernel(
-      descriptor: acmeDescriptor,
-      create: AcmeVideoKernelAdapter.new,
-    ),
-  ],
-);
+class AppVideoKernelAdapter extends VideoKernelAdapter {
+  AppVideoKernelAdapter(this._engine);
+
+  final AppVideoEngine _engine;
+
+  @override
+  VideoKernelDescriptor get descriptor => appVideoKernelDescriptor;
+
+  // 若 SDK 占用全局运行时，覆写 runtimeGroup、runtimeIdentity、
+  // activateRuntime 和 deactivateRuntime，并在后两者中调用 SDK 的交接 API。
+
+  @override
+  Future<void> initialize() => _engine.initialize();
+
+  @override
+  Future<UnifiedVideoState> open(
+    VideoSource source,
+    UnifiedVideoState state,
+  ) async {
+    await _engine.open(source.uri, headers: source.headers);
+    return _stateFromEngine(
+      state.copyWith(
+        source: source,
+        activeKernelId: descriptor.id,
+        clearError: true,
+      ),
+    );
+  }
+
+  @override
+  Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
+    return _stateFromEngine(state);
+  }
+
+  @override
+  Future<UnifiedVideoState> play(UnifiedVideoState state) async {
+    await _engine.play();
+    return _stateFromEngine(state);
+  }
+
+  @override
+  Future<UnifiedVideoState> pause(UnifiedVideoState state) async {
+    await _engine.pause();
+    return _stateFromEngine(state);
+  }
+
+  @override
+  Future<UnifiedVideoState> seek(
+    Duration position,
+    UnifiedVideoState state,
+  ) async {
+    await _engine.seek(position);
+    return _stateFromEngine(state);
+  }
+
+  @override
+  Future<UnifiedVideoState> stop(UnifiedVideoState state) async {
+    await _engine.stop();
+    return _stateFromEngine(state);
+  }
+
+  @override
+  Future<UnifiedVideoState> setSpeed(
+    double speed,
+    UnifiedVideoState state,
+  ) async {
+    await _engine.setSpeed(speed);
+    return _stateFromEngine(state);
+  }
+
+  @override
+  Future<UnifiedVideoState> setFit(
+    UnifiedVideoFit fit,
+    UnifiedVideoState state,
+  ) async {
+    return state.copyWith(fit: fit);
+  }
+
+  @override
+  Future<UnifiedVideoState> setVolume(
+    double volume,
+    UnifiedVideoState state,
+  ) async {
+    await _engine.setVolume(volume);
+    return _stateFromEngine(state);
+  }
+
+  @override
+  Widget buildSurface(BuildContext context, UnifiedVideoState state) {
+    return _engine.buildSurface(context);
+  }
+
+  @override
+  Future<void> dispose() => _engine.dispose();
+
+  UnifiedVideoState _stateFromEngine(UnifiedVideoState state) {
+    return state.copyWith(
+      lifecycle: _engine.lifecycle,
+      position: _engine.position,
+      duration: _engine.duration,
+      speed: _engine.speed,
+      volume: _engine.volume,
+    );
+  }
+}
 ```
+
+`open` 将 `VideoSource.uri` 和请求头交给 SDK，并将当前播放源和内核 ID 写回统一状态；`snapshot`、播放、暂停、跳转、停止、倍速和音量操作都在调用 SDK 后重新读取 engine 属性。`setFit` 只更新统一 UI 缩放状态；若 SDK 自身也有画面缩放接口，可在该方法中一并调用。`buildSurface` 返回 SDK 的真实渲染视图，`dispose` 必须释放 SDK 的控制器、订阅和原生资源。
+
+将实际 SDK 的创建函数传给 `createAppVideoKernel`。factory 会在每次 controller 创建 adapter 时调用一次 `createEngine()`，避免不同播放器复用同一个可变 engine。控制器切换内核时会按统一状态调用新 adapter 的 `open`、`seek`、`setSpeed`、`setFit`、`setVolume` 和播放/暂停，因此 engine 的 getters 与 SDK 实际状态必须保持同步；目标内核失败时控制器会用同一流程恢复原 adapter。
 
 最低环境要求：Flutter 3.44、Dart 3.12.2、Android API 26、iOS 13 和 macOS 10.15。Windows 需要 Flutter 支持的 Visual Studio C++ 桌面工具链。
 
