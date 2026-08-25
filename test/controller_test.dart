@@ -146,6 +146,47 @@ void main() {
     expect(notifications, notificationsAfterDispose);
   });
 
+  test('切核期间释放控制器会取消状态提交并完成资源清理', () async {
+    const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
+      id: 'blocked-switch',
+      displayName: '阻塞切核测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _BlockedSwitchVideoKernelAdapter adapter =
+        _BlockedSwitchVideoKernelAdapter(firstDescriptor);
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(
+          descriptor: firstDescriptor,
+          create: () => adapter,
+        ),
+        createFakeVideoKernel(id: 'second'),
+      ],
+      preference: KernelPreference.exact('blocked-switch'),
+      stateRefreshInterval: null,
+    );
+    int notifications = 0;
+    player.addListener(() => notifications++);
+
+    await player.open(source());
+    final Future<void> switchFuture = player.switchKernel('second');
+    await adapter.snapshotStarted.future;
+
+    player.dispose();
+    final int notificationsAfterDispose = notifications;
+    adapter.releaseSnapshot();
+
+    await expectLater(switchFuture, completes);
+    await adapter.disposeCompleted.future;
+    await adapter.runtimeReleased.future;
+
+    expect(player.value.lifecycle, UnifiedVideoLifecycle.disposed);
+    expect(notifications, notificationsAfterDispose);
+    expect(adapter.disposeCount, 1);
+    expect(adapter.runtimeReleaseCount, 1);
+  });
+
   test('切换播放器内核后保留当前播放进度和播放状态', () async {
     const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
       id: 'first',
@@ -535,6 +576,42 @@ class _DelayedPlayVideoKernelAdapter extends FakeVideoKernelAdapter {
     playStarted.complete();
     await _playRelease.future;
     return state.copyWith(lifecycle: UnifiedVideoLifecycle.playing);
+  }
+}
+
+class _BlockedSwitchVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _BlockedSwitchVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  final Completer<void> snapshotStarted = Completer<void>();
+  final Completer<void> disposeCompleted = Completer<void>();
+  final Completer<void> runtimeReleased = Completer<void>();
+  final Completer<void> _snapshotRelease = Completer<void>();
+  int disposeCount = 0;
+  int runtimeReleaseCount = 0;
+
+  void releaseSnapshot() {
+    _snapshotRelease.complete();
+  }
+
+  @override
+  Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
+    snapshotStarted.complete();
+    await _snapshotRelease.future;
+    return state;
+  }
+
+  @override
+  Future<void> dispose() async {
+    disposeCount += 1;
+    await super.dispose();
+    disposeCompleted.complete();
+  }
+
+  @override
+  Future<void> deactivateRuntime() async {
+    runtimeReleaseCount += 1;
+    runtimeReleased.complete();
   }
 }
 

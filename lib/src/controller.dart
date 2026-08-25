@@ -143,6 +143,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
 
   Future<void> _open(VideoSource source, {KernelPreference? preference}) async {
     _ensureActive();
+    final int generation = _stateGeneration;
     this.preference = preference ?? this.preference;
     value = value.copyWith(
       lifecycle: UnifiedVideoLifecycle.opening,
@@ -165,10 +166,21 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
         }
 
         try {
-          await _openKernel(kernel, source, fallbackHistory: skippedKernelIds);
+          final bool opened = await _openKernel(
+            kernel,
+            source,
+            fallbackHistory: skippedKernelIds,
+            generation: generation,
+          );
+          if (!opened) {
+            return;
+          }
           _startStateRefresh();
           return;
         } catch (error) {
+          if (!_canCommitAsyncState(generation)) {
+            return;
+          }
           lastRuntimeError = error;
           runtimeFailures.add('${kernel.descriptor.id}: $error');
           skippedKernelIds.add(kernel.descriptor.id);
@@ -202,23 +214,35 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
             );
       if (runtimeFailures.isNotEmpty) {
         await _disposeActiveAdapter();
+        if (!_canCommitAsyncState(generation)) {
+          return;
+        }
       }
       _stopStateRefresh();
-      value = value.copyWith(
-        lifecycle: UnifiedVideoLifecycle.failed,
-        error: unifiedError,
-        fallbackHistory: skippedKernelIds,
-        clearActiveKernelId: true,
+      _commitAsyncState(
+        value.copyWith(
+          lifecycle: UnifiedVideoLifecycle.failed,
+          error: unifiedError,
+          fallbackHistory: skippedKernelIds,
+          clearActiveKernelId: true,
+        ),
+        generation,
       );
       rethrow;
     } catch (error) {
-      value = value.copyWith(
-        lifecycle: UnifiedVideoLifecycle.failed,
-        error: UnifiedVideoError(
-          code: UnifiedVideoErrorCode.openFailed,
-          message: '打开播放源失败。',
-          backendMessage: error.toString(),
+      if (!_canCommitAsyncState(generation)) {
+        return;
+      }
+      _commitAsyncState(
+        value.copyWith(
+          lifecycle: UnifiedVideoLifecycle.failed,
+          error: UnifiedVideoError(
+            code: UnifiedVideoErrorCode.openFailed,
+            message: '打开播放源失败。',
+            backendMessage: error.toString(),
+          ),
         ),
+        generation,
       );
       rethrow;
     }
@@ -335,33 +359,63 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
 
   Future<void> _switchKernel(String kernelId) async {
     _ensureActive();
+    final int generation = _stateGeneration;
     final _KernelSwitchSnapshot snapshot = await _captureSwitchSnapshot();
 
-    value = value.copyWith(
-      lifecycle: UnifiedVideoLifecycle.switchingKernel,
-      targetKernelId: kernelId,
-      clearError: true,
-      clearLastKernelSwitchError: true,
-    );
+    if (!_commitAsyncState(
+      value.copyWith(
+        lifecycle: UnifiedVideoLifecycle.switchingKernel,
+        targetKernelId: kernelId,
+        clearError: true,
+        clearLastKernelSwitchError: true,
+      ),
+      generation,
+    )) {
+      return;
+    }
 
     try {
       await _disposeActiveAdapter();
-      await _openKernelById(kernelId, snapshot.source);
-      await _restoreSwitchSnapshot(snapshot);
-      value = value.copyWith(
-        clearTargetKernelId: true,
-        clearLastKernelSwitchError: true,
-        clearError: true,
+      if (!_canCommitAsyncState(generation)) {
+        return;
+      }
+      if (!await _openKernelById(kernelId, snapshot.source, generation)) {
+        return;
+      }
+      if (!await _restoreSwitchSnapshot(snapshot, generation)) {
+        return;
+      }
+      _commitAsyncState(
+        value.copyWith(
+          clearTargetKernelId: true,
+          clearLastKernelSwitchError: true,
+          clearError: true,
+        ),
+        generation,
       );
     } catch (targetError) {
+      if (!_canCommitAsyncState(generation)) {
+        return;
+      }
       try {
         await _disposeActiveAdapter();
       } catch (_) {
         // 目标内核清理失败不应阻断原内核回滚。
       }
+      if (!_canCommitAsyncState(generation)) {
+        return;
+      }
       try {
-        await _openKernelById(snapshot.kernelId, snapshot.source);
-        await _restoreSwitchSnapshot(snapshot);
+        if (!await _openKernelById(
+          snapshot.kernelId,
+          snapshot.source,
+          generation,
+        )) {
+          return;
+        }
+        if (!await _restoreSwitchSnapshot(snapshot, generation)) {
+          return;
+        }
         final KernelSwitchException exception = KernelSwitchException(
           fromKernelId: snapshot.kernelId,
           toKernelId: kernelId,
@@ -370,13 +424,21 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
           rollbackSucceeded: true,
         );
         final UnifiedVideoError error = _kernelSwitchError(exception);
-        value = value.copyWith(
-          clearTargetKernelId: true,
-          lastKernelSwitchError: error,
-          error: error,
-        );
+        if (!_commitAsyncState(
+          value.copyWith(
+            clearTargetKernelId: true,
+            lastKernelSwitchError: error,
+            error: error,
+          ),
+          generation,
+        )) {
+          return;
+        }
         throw exception;
       } catch (rollbackError) {
+        if (!_canCommitAsyncState(generation)) {
+          return;
+        }
         if (rollbackError is KernelSwitchException) {
           rethrow;
         }
@@ -389,41 +451,61 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
           rollbackError: rollbackError,
         );
         final UnifiedVideoError error = _kernelSwitchError(exception);
-        value = value.copyWith(
-          lifecycle: UnifiedVideoLifecycle.failed,
-          clearTargetKernelId: true,
-          lastKernelSwitchError: error,
-          error: error,
-        );
+        if (!_commitAsyncState(
+          value.copyWith(
+            lifecycle: UnifiedVideoLifecycle.failed,
+            clearTargetKernelId: true,
+            lastKernelSwitchError: error,
+            error: error,
+          ),
+          generation,
+        )) {
+          return;
+        }
         throw exception;
       }
     }
   }
 
-  Future<void> _openKernel(
+  Future<bool> _openKernel(
     RegisteredVideoKernel kernel,
     VideoSource source, {
     required List<String> fallbackHistory,
+    required int generation,
   }) async {
     final VideoKernelAdapter? activeAdapter = _adapter;
     if (activeAdapter?.descriptor.id == kernel.descriptor.id) {
-      value = value.copyWith(
-        activeKernelId: activeAdapter!.descriptor.id,
-        fallbackHistory: fallbackHistory,
-      );
-      value = await activeAdapter.open(source, value);
-      return;
+      if (!_commitAsyncState(
+        value.copyWith(
+          activeKernelId: activeAdapter!.descriptor.id,
+          fallbackHistory: fallbackHistory,
+        ),
+        generation,
+        adapter: activeAdapter,
+      )) {
+        return false;
+      }
+      final UnifiedVideoState next = await activeAdapter.open(source, value);
+      return _commitAsyncState(next, generation, adapter: activeAdapter);
     }
 
     await _disposeActiveAdapter(snapshot: activeAdapter != null);
-    await _createAndOpenKernel(
+    if (!_canCommitAsyncState(generation)) {
+      return false;
+    }
+    return _createAndOpenKernel(
       kernel,
       source,
       fallbackHistory: fallbackHistory,
+      generation: generation,
     );
   }
 
-  Future<void> _openKernelById(String kernelId, VideoSource source) async {
+  Future<bool> _openKernelById(
+    String kernelId,
+    VideoSource source,
+    int generation,
+  ) async {
     final RegisteredVideoKernel? kernel = registry.byId(kernelId);
     if (kernel == null) {
       throw StateError('未注册目标播放器内核：$kernelId。');
@@ -431,41 +513,73 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     if (!kernel.descriptor.supports(_platform, source)) {
       throw StateError('目标播放器内核 $kernelId 不支持当前播放源。');
     }
-    await _createAndOpenKernel(
+    return _createAndOpenKernel(
       kernel,
       source,
       fallbackHistory: const <String>[],
+      generation: generation,
     );
   }
 
-  Future<void> _createAndOpenKernel(
+  Future<bool> _createAndOpenKernel(
     RegisteredVideoKernel kernel,
     VideoSource source, {
     required List<String> fallbackHistory,
+    required int generation,
   }) async {
     final VideoKernelAdapter adapter = kernel.create();
     VideoKernelRuntimeLease? lease;
     try {
       lease = await _runtimeCoordinator.acquire(adapter);
+      if (!_canCommitAsyncState(generation)) {
+        await _discardAdapter(adapter, lease);
+        return false;
+      }
       await adapter.initialize();
+      if (!_canCommitAsyncState(generation)) {
+        await _discardAdapter(adapter, lease);
+        return false;
+      }
       _adapter = adapter;
       _runtimeLease = lease;
-      value = value.copyWith(
-        activeKernelId: adapter.descriptor.id,
-        fallbackHistory: fallbackHistory,
-      );
-      value = await adapter.open(source, value);
-    } catch (_) {
-      if (identical(_adapter, adapter)) {
-        _adapter = null;
-        _runtimeLease = null;
+      if (!_commitAsyncState(
+        value.copyWith(
+          activeKernelId: adapter.descriptor.id,
+          fallbackHistory: fallbackHistory,
+        ),
+        generation,
+        adapter: adapter,
+      )) {
+        await _discardAdapter(adapter, lease);
+        return false;
       }
-      try {
-        await _disposeAdapterAndRelease(adapter, lease);
-      } catch (_) {
-        // 保留候选内核的原始失败原因。
+      final UnifiedVideoState next = await adapter.open(source, value);
+      if (!_commitAsyncState(next, generation, adapter: adapter)) {
+        await _discardAdapter(adapter, lease);
+        return false;
+      }
+      return true;
+    } catch (_) {
+      await _discardAdapter(adapter, lease);
+      if (!_canCommitAsyncState(generation)) {
+        return false;
       }
       rethrow;
+    }
+  }
+
+  Future<void> _discardAdapter(
+    VideoKernelAdapter adapter,
+    VideoKernelRuntimeLease? lease,
+  ) async {
+    if (identical(_adapter, adapter)) {
+      _adapter = null;
+      _runtimeLease = null;
+    }
+    try {
+      await _disposeAdapterAndRelease(adapter, lease);
+    } catch (_) {
+      // 保留候选内核的原始失败原因或取消语义。
     }
   }
 
@@ -518,17 +632,42 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     );
   }
 
-  Future<void> _restoreSwitchSnapshot(_KernelSwitchSnapshot snapshot) async {
-    await _restorePosition(snapshot.position);
+  Future<bool> _restoreSwitchSnapshot(
+    _KernelSwitchSnapshot snapshot,
+    int generation,
+  ) async {
+    if (!await _restorePosition(snapshot.position, generation)) {
+      return false;
+    }
     await _setSpeed(snapshot.speed);
+    if (!_canCommitAsyncState(generation)) {
+      return false;
+    }
     await _setFit(snapshot.fit);
+    if (!_canCommitAsyncState(generation)) {
+      return false;
+    }
     await _setVolume(snapshot.volume);
+    if (!_canCommitAsyncState(generation)) {
+      return false;
+    }
     if (snapshot.wasPlaying) {
       await _play();
+      if (!_canCommitAsyncState(generation)) {
+        return false;
+      }
     } else {
-      value = value.copyWith(lifecycle: UnifiedVideoLifecycle.paused);
+      if (!_commitAsyncState(
+        value.copyWith(lifecycle: UnifiedVideoLifecycle.paused),
+        generation,
+      )) {
+        return false;
+      }
     }
-    value = value.copyWith(fullscreen: snapshot.fullscreen);
+    return _commitAsyncState(
+      value.copyWith(fullscreen: snapshot.fullscreen),
+      generation,
+    );
   }
 
   UnifiedVideoError _kernelSwitchError(KernelSwitchException exception) {
@@ -549,25 +688,35 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     );
   }
 
-  Future<void> _restorePosition(Duration position) async {
+  Future<bool> _restorePosition(Duration position, int generation) async {
     Object? lastError;
     for (int attempt = 0; attempt < 6; attempt++) {
       try {
         await _seek(position);
+        if (!_canCommitAsyncState(generation)) {
+          return false;
+        }
         await Future<void>.delayed(const Duration(milliseconds: 120));
+        if (!_canCommitAsyncState(generation)) {
+          return false;
+        }
         await _refreshAdapterState();
         final int driftMs = (value.position - position).inMilliseconds.abs();
         if (driftMs <= 700 || value.position >= position) {
-          return;
+          return true;
         }
       } catch (error) {
         lastError = error;
         await Future<void>.delayed(const Duration(milliseconds: 120));
+        if (!_canCommitAsyncState(generation)) {
+          return false;
+        }
       }
     }
     if (lastError != null) {
       throw lastError;
     }
+    return true;
   }
 
   Future<void> _runCommand(
@@ -577,25 +726,32 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     final int generation = _stateGeneration;
     try {
       final UnifiedVideoState next = await command(adapter);
-      if (!_canCommitAsyncState(adapter, generation)) {
+      if (!_commitAsyncState(
+        next.copyWith(clearError: true),
+        generation,
+        adapter: adapter,
+      )) {
         return;
       }
-      value = next.copyWith(clearError: true);
       _startStateRefresh();
     } catch (error) {
       if (_disposed) {
         return;
       }
-      if (!_canCommitAsyncState(adapter, generation)) {
+      if (!_canCommitAsyncState(generation, adapter: adapter)) {
         rethrow;
       }
-      value = value.copyWith(
-        lifecycle: UnifiedVideoLifecycle.failed,
-        error: UnifiedVideoError(
-          code: UnifiedVideoErrorCode.commandFailed,
-          message: '播放器命令执行失败。',
-          backendMessage: error.toString(),
+      _commitAsyncState(
+        value.copyWith(
+          lifecycle: UnifiedVideoLifecycle.failed,
+          error: UnifiedVideoError(
+            code: UnifiedVideoErrorCode.commandFailed,
+            message: '播放器命令执行失败。',
+            backendMessage: error.toString(),
+          ),
         ),
+        generation,
+        adapter: adapter,
       );
       rethrow;
     }
@@ -631,9 +787,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     _refreshingState = true;
     try {
       final UnifiedVideoState next = await adapter.snapshot(value);
-      if (_canCommitAsyncState(adapter, generation)) {
-        value = next;
-      }
+      _commitAsyncState(next, generation, adapter: adapter);
     } catch (_) {
       // 后端异步状态同步失败不应打断 UI；命令调用会返回明确错误。
     } finally {
@@ -641,11 +795,23 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     }
   }
 
-  bool _canCommitAsyncState(VideoKernelAdapter adapter, int generation) {
+  bool _canCommitAsyncState(int generation, {VideoKernelAdapter? adapter}) {
     return !_disposed &&
         !value.isDisposed &&
-        identical(_adapter, adapter) &&
+        (adapter == null || identical(_adapter, adapter)) &&
         _stateGeneration == generation;
+  }
+
+  bool _commitAsyncState(
+    UnifiedVideoState next,
+    int generation, {
+    VideoKernelAdapter? adapter,
+  }) {
+    if (!_canCommitAsyncState(generation, adapter: adapter)) {
+      return false;
+    }
+    value = next;
+    return true;
   }
 
   VideoKernelAdapter _requireAdapter() {
