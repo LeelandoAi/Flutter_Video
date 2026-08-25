@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lee_video/lee_video.dart';
 
@@ -81,6 +83,67 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 750));
 
     expect(player.value.position, greaterThan(Duration.zero));
+  });
+
+  test('在途定时快照不会覆盖随后排队命令的状态', () async {
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'blocked-snapshot',
+      displayName: '阻塞快照测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _BlockedSnapshotVideoKernelAdapter adapter =
+        _BlockedSnapshotVideoKernelAdapter(descriptor);
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(descriptor: descriptor, create: () => adapter),
+      ],
+      stateRefreshInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    await adapter.snapshotStarted.future;
+
+    await player.seek(const Duration(minutes: 2));
+    expect(player.value.position, const Duration(minutes: 2));
+
+    adapter.releaseSnapshot();
+    await adapter.snapshotFinished.future;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(player.value.position, const Duration(minutes: 2));
+  });
+
+  test('释放控制器后延迟命令不会写入 notifier 或产生异步错误', () async {
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'delayed-play',
+      displayName: '延迟播放测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _DelayedPlayVideoKernelAdapter adapter =
+        _DelayedPlayVideoKernelAdapter(descriptor);
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(descriptor: descriptor, create: () => adapter),
+      ],
+      stateRefreshInterval: null,
+    );
+    int notifications = 0;
+    player.addListener(() => notifications++);
+
+    await player.open(source());
+    final Future<void> playFuture = player.play();
+    await adapter.playStarted.future;
+
+    player.dispose();
+    final int notificationsAfterDispose = notifications;
+    adapter.releasePlay();
+
+    await expectLater(playFuture, completes);
+    expect(player.value.lifecycle, UnifiedVideoLifecycle.disposed);
+    expect(notifications, notificationsAfterDispose);
   });
 
   test('切换播放器内核后保留当前播放进度和播放状态', () async {
@@ -427,6 +490,51 @@ class _AdvancingSnapshotVideoKernelAdapter extends FakeVideoKernelAdapter {
       _position += const Duration(milliseconds: 300);
     }
     return state.copyWith(position: _position);
+  }
+}
+
+class _BlockedSnapshotVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _BlockedSnapshotVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  final Completer<void> snapshotStarted = Completer<void>();
+  final Completer<void> snapshotFinished = Completer<void>();
+  final Completer<void> _snapshotRelease = Completer<void>();
+  bool _blockedSnapshot = false;
+
+  void releaseSnapshot() {
+    _snapshotRelease.complete();
+  }
+
+  @override
+  Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
+    if (_blockedSnapshot) {
+      return super.snapshot(state);
+    }
+    _blockedSnapshot = true;
+    snapshotStarted.complete();
+    await _snapshotRelease.future;
+    snapshotFinished.complete();
+    return state;
+  }
+}
+
+class _DelayedPlayVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _DelayedPlayVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  final Completer<void> playStarted = Completer<void>();
+  final Completer<void> _playRelease = Completer<void>();
+
+  void releasePlay() {
+    _playRelease.complete();
+  }
+
+  @override
+  Future<UnifiedVideoState> play(UnifiedVideoState state) async {
+    playStarted.complete();
+    await _playRelease.future;
+    return state.copyWith(lifecycle: UnifiedVideoLifecycle.playing);
   }
 }
 

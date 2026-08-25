@@ -82,6 +82,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
   Timer? _stateRefreshTimer;
   Future<void> _operationTail = Future<void>.value();
   Future<void> _cleanupFuture = Future<void>.value();
+  int _stateGeneration = 0;
   bool _operationRunning = false;
   bool _refreshingState = false;
   bool _disposed = false;
@@ -123,6 +124,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
   Future<T> _enqueue<T>(Future<T> Function() operation) {
     final Completer<T> completer = Completer<T>();
     _operationTail = _operationTail.then((_) async {
+      _stateGeneration += 1;
       _operationRunning = true;
       try {
         completer.complete(await operation());
@@ -572,10 +574,21 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     Future<UnifiedVideoState> Function(VideoKernelAdapter adapter) command,
   ) async {
     final VideoKernelAdapter adapter = _requireAdapter();
+    final int generation = _stateGeneration;
     try {
-      value = (await command(adapter)).copyWith(clearError: true);
+      final UnifiedVideoState next = await command(adapter);
+      if (!_canCommitAsyncState(adapter, generation)) {
+        return;
+      }
+      value = next.copyWith(clearError: true);
       _startStateRefresh();
     } catch (error) {
+      if (_disposed) {
+        return;
+      }
+      if (!_canCommitAsyncState(adapter, generation)) {
+        rethrow;
+      }
       value = value.copyWith(
         lifecycle: UnifiedVideoLifecycle.failed,
         error: UnifiedVideoError(
@@ -590,7 +603,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
 
   void _startStateRefresh() {
     final Duration? interval = stateRefreshInterval;
-    if (interval == null) {
+    if (_disposed || interval == null) {
       return;
     }
     _stateRefreshTimer ??= Timer.periodic(
@@ -614,10 +627,11 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
       return;
     }
 
+    final int generation = _stateGeneration;
     _refreshingState = true;
     try {
       final UnifiedVideoState next = await adapter.snapshot(value);
-      if (!_disposed && _adapter == adapter && !value.isDisposed) {
+      if (_canCommitAsyncState(adapter, generation)) {
         value = next;
       }
     } catch (_) {
@@ -625,6 +639,13 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     } finally {
       _refreshingState = false;
     }
+  }
+
+  bool _canCommitAsyncState(VideoKernelAdapter adapter, int generation) {
+    return !_disposed &&
+        !value.isDisposed &&
+        identical(_adapter, adapter) &&
+        _stateGeneration == generation;
   }
 
   VideoKernelAdapter _requireAdapter() {
@@ -658,6 +679,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     if (_disposed) {
       return;
     }
+    _stateGeneration += 1;
     _disposed = true;
     releaseFullscreenOwnership();
     UnifiedVideoFullscreenPlatform.changes.removeListener(
