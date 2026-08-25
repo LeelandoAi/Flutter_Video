@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lee_video/lee_video.dart';
 
 void main() {
+  late _DelayedOpenVideoKernelAdapter delayedSwitchAdapter;
+
   Future<UnifiedVideoController> pumpPlayer(
     WidgetTester tester, {
     VoidCallback? onPrevious,
@@ -43,6 +45,47 @@ void main() {
     addTearDown(controller.dispose);
     return controller;
   }
+
+  Future<UnifiedVideoController> pumpSwitchablePlayer(
+    WidgetTester tester,
+  ) async {
+    const VideoKernelDescriptor delayedDescriptor = VideoKernelDescriptor(
+      id: 'delayed',
+      displayName: '延迟测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    delayedSwitchAdapter = _DelayedOpenVideoKernelAdapter(delayedDescriptor);
+    final UnifiedVideoController controller = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          createFakeVideoKernel(),
+          RegisteredVideoKernel(
+            descriptor: delayedDescriptor,
+            create: () => delayedSwitchAdapter,
+          ),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.android,
+      stateRefreshInterval: null,
+    );
+    await controller.open(
+      VideoSource.network(
+        sampleMp4Url,
+        metadata: const VideoMetadata(title: '测试影片'),
+      ),
+      preference: KernelPreference.exact('fake'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: UnifiedVideoPlayer(controller: controller)),
+      ),
+    );
+    addTearDown(controller.dispose);
+    return controller;
+  }
+
+  void completeDelayedOpen() => delayedSwitchAdapter.completeOpen();
 
   testWidgets('默认播放器显示必需控件和 fake 播放画面', (WidgetTester tester) async {
     await pumpPlayer(tester, onPrevious: () {}, onNext: () {});
@@ -547,6 +590,127 @@ void main() {
     expect(find.text('正在缓冲'), findsOneWidget);
   });
 
+  testWidgets('切换内核时保持播放器 View 并显示目标内核 Loading', (WidgetTester tester) async {
+    final UnifiedVideoController controller = await pumpSwitchablePlayer(
+      tester,
+    );
+    final Finder playerHost = find.byKey(
+      const ValueKey<String>('video-surface-host'),
+    );
+    expect(playerHost, findsOneWidget);
+
+    final Future<void> switching = controller.switchKernel('delayed');
+    await tester.pump();
+
+    expect(playerHost, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('video-loading-indicator')),
+      findsOneWidget,
+    );
+    expect(find.text('正在切换到 延迟测试内核'), findsOneWidget);
+
+    completeDelayedOpen();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    await switching;
+    await tester.pumpAndSettle();
+    expect(playerHost, findsOneWidget);
+  });
+
+  testWidgets('桌面菜单和移动设置仅显示兼容当前播放源的内核', (WidgetTester tester) async {
+    const VideoKernelDescriptor compatibleDescriptor = VideoKernelDescriptor(
+      id: 'compatible',
+      displayName: '兼容测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    const VideoKernelDescriptor unsupportedPlatformDescriptor =
+        VideoKernelDescriptor(
+          id: 'unsupported-platform',
+          displayName: '不兼容平台内核',
+          supportedPlatforms: <UnifiedVideoPlatform>{
+            UnifiedVideoPlatform.macos,
+          },
+          supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+        );
+    const VideoKernelDescriptor unsupportedSourceDescriptor =
+        VideoKernelDescriptor(
+          id: 'unsupported-source',
+          displayName: '不兼容播放源内核',
+          supportedPlatforms: <UnifiedVideoPlatform>{
+            UnifiedVideoPlatform.android,
+          },
+          supportedSourceTypes: <VideoSourceType>{VideoSourceType.asset},
+        );
+    final UnifiedVideoController controller = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          createFakeVideoKernel(),
+          RegisteredVideoKernel(
+            descriptor: compatibleDescriptor,
+            create: () =>
+                FakeVideoKernelAdapter(descriptor: compatibleDescriptor),
+          ),
+          RegisteredVideoKernel(
+            descriptor: unsupportedPlatformDescriptor,
+            create: () => FakeVideoKernelAdapter(
+              descriptor: unsupportedPlatformDescriptor,
+            ),
+          ),
+          RegisteredVideoKernel(
+            descriptor: unsupportedSourceDescriptor,
+            create: () =>
+                FakeVideoKernelAdapter(descriptor: unsupportedSourceDescriptor),
+          ),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.android,
+      stateRefreshInterval: null,
+    );
+    await controller.open(
+      VideoSource.network(sampleMp4Url),
+      preference: KernelPreference.exact('fake'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: UnifiedVideoPlayer(controller: controller)),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.tap(find.byKey(const ValueKey<String>('kernel-menu')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('kernel-option-compatible')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('kernel-option-unsupported-platform')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('kernel-option-unsupported-source')),
+      findsNothing,
+    );
+
+    await tester.tapAt(const Offset(1, 1));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('settings-menu')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('kernel-option-compatible')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('kernel-option-unsupported-platform')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('kernel-option-unsupported-source')),
+      findsNothing,
+    );
+  });
+
   testWidgets('设置面板按钮生效后自动关闭', (WidgetTester tester) async {
     final UnifiedVideoController controller = await pumpPlayer(tester);
 
@@ -597,7 +761,7 @@ void main() {
     expect(find.text('重试'), findsOneWidget);
   });
 
-  testWidgets('切换到失败内核时显示失败状态且不抛未处理异常', (WidgetTester tester) async {
+  testWidgets('切换到失败内核后保留原播放画面和生命周期并提示错误', (WidgetTester tester) async {
     const VideoKernelDescriptor failingDescriptor = VideoKernelDescriptor(
       id: 'erika',
       displayName: 'Erika / Rust Renderer',
@@ -624,6 +788,7 @@ void main() {
       ),
       preference: KernelPreference.exact('fake'),
     );
+    await controller.play();
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(body: UnifiedVideoPlayer(controller: controller)),
@@ -636,11 +801,18 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('kernel-option-erika')));
     await tester.pumpAndSettle();
 
-    expect(controller.value.lifecycle, UnifiedVideoLifecycle.failed);
+    expect(controller.value.lifecycle, UnifiedVideoLifecycle.playing);
+    expect(controller.value.activeKernelId, 'fake');
     expect(
-      find.byKey(const ValueKey<String>('video-error-message')),
+      find.byKey(const ValueKey<String>('fake-video-title')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey<String>('video-error-message')),
+      findsNothing,
+    );
+    expect(find.text('切换目标播放器内核失败，已恢复原内核。'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
 

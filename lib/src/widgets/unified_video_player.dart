@@ -373,7 +373,49 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
                     onTap: _toggleControls,
                   ),
                 ),
-                _StateOverlay(state: state, onRetry: _retryCurrentSource),
+                _StateOverlay(
+                  controller: widget.controller,
+                  state: state,
+                  onRetry: _retryCurrentSource,
+                ),
+                if (state.lastKernelSwitchError != null &&
+                    state.lifecycle != UnifiedVideoLifecycle.failed)
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    top: 18,
+                    child: IgnorePointer(
+                      child: Semantics(
+                        liveRegion: true,
+                        child: DecoratedBox(
+                          key: const ValueKey<String>(
+                            'kernel-switch-error-message',
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.72),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.16),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            child: Text(
+                              state.lastKernelSwitchError!.message,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 AnimatedOpacity(
                   key: const ValueKey<String>('player-controls-overlay'),
                   opacity: controlsShown ? 1 : 0,
@@ -542,18 +584,24 @@ class _VideoSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final adapter = controller.activeAdapter;
-    if (adapter == null) {
-      return const Center(
-        child: Text('未打开视频', style: TextStyle(color: Colors.white70)),
-      );
-    }
-    return FittedBox(
-      fit: _boxFitFor(state.fit),
-      clipBehavior: Clip.hardEdge,
-      child: SizedBox(
-        width: 1280,
-        height: 720,
-        child: adapter.buildSurface(context, state),
+    return KeyedSubtree(
+      key: const ValueKey<String>('video-surface-host'),
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 160),
+        opacity: state.lifecycle == UnifiedVideoLifecycle.switchingKernel
+            ? 0
+            : 1,
+        child: adapter == null
+            ? const SizedBox.expand()
+            : FittedBox(
+                fit: _boxFitFor(state.fit),
+                clipBehavior: Clip.hardEdge,
+                child: SizedBox(
+                  width: 1280,
+                  height: 720,
+                  child: adapter.buildSurface(context, state),
+                ),
+              ),
       ),
     );
   }
@@ -574,8 +622,13 @@ class _VideoSurface extends StatelessWidget {
 }
 
 class _StateOverlay extends StatelessWidget {
-  const _StateOverlay({required this.state, required this.onRetry});
+  const _StateOverlay({
+    required this.controller,
+    required this.state,
+    required this.onRetry,
+  });
 
+  final UnifiedVideoController controller;
   final UnifiedVideoState state;
   final VoidCallback onRetry;
 
@@ -587,13 +640,20 @@ class _StateOverlay extends StatelessWidget {
       case UnifiedVideoLifecycle.buffering:
         final bool buffering =
             state.lifecycle == UnifiedVideoLifecycle.buffering;
+        final bool switching =
+            state.lifecycle == UnifiedVideoLifecycle.switchingKernel;
+        final String loadingText = buffering
+            ? '正在缓冲'
+            : switching
+            ? '正在切换到 ${_kernelDisplayName(controller, state.targetKernelId)}'
+            : '正在加载视频';
         return IgnorePointer(
           child: ColoredBox(
             color: Colors.black.withValues(alpha: 0.32),
             child: Center(
               child: Semantics(
                 liveRegion: true,
-                label: buffering ? '正在缓冲' : '正在加载视频',
+                label: loadingText,
                 child: Column(
                   key: const ValueKey<String>('video-loading-indicator'),
                   mainAxisSize: MainAxisSize.min,
@@ -607,7 +667,7 @@ class _StateOverlay extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      buffering ? '正在缓冲' : '正在加载视频',
+                      loadingText,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 13,
@@ -1354,7 +1414,7 @@ class _KernelActionMenu extends StatelessWidget {
         _ignorePlaybackError(() => controller.switchKernel(kernelId));
       },
       itemBuilder: (BuildContext context) {
-        return controller.availableKernels
+        return controller.compatibleKernels
             .map((VideoKernelDescriptor item) {
               return PopupMenuItem<String>(
                 key: ValueKey<String>('kernel-option-${item.id}'),
@@ -1635,7 +1695,7 @@ class _PlayerSettingsPanel extends StatelessWidget {
                   key: const ValueKey<String>('kernel-menu'),
                   title: '播放器内核',
                   child: _SettingsButtonGrid(
-                    children: controller.availableKernels
+                    children: controller.compatibleKernels
                         .map((VideoKernelDescriptor descriptor) {
                           final bool selected =
                               descriptor.id == state.activeKernelId;
@@ -1890,6 +1950,18 @@ String _activeKernelName(
     }
   }
   return activeKernelId;
+}
+
+String _kernelDisplayName(UnifiedVideoController controller, String? kernelId) {
+  if (kernelId == null) {
+    return '目标内核';
+  }
+  for (final VideoKernelDescriptor descriptor in controller.availableKernels) {
+    if (descriptor.id == kernelId) {
+      return descriptor.displayName;
+    }
+  }
+  return kernelId;
 }
 
 String _activeKernelShortName(

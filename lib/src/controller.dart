@@ -89,6 +89,16 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
 
   List<VideoKernelDescriptor> get availableKernels => registry.descriptors;
 
+  List<VideoKernelDescriptor> get compatibleKernels {
+    final VideoSource? source = value.source;
+    if (source == null) {
+      return availableKernels;
+    }
+    return availableKernels
+        .where((VideoKernelDescriptor item) => item.supports(platform, source))
+        .toList(growable: false);
+  }
+
   VideoKernelAdapter? get activeAdapter => _adapter;
 
   UnifiedVideoPlatform get platform => _platform;
