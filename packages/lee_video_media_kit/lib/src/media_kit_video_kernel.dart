@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:lee_video/lee_video.dart';
 import 'package:media_kit/media_kit.dart' as mk;
 import 'package:media_kit_video/media_kit_video.dart' as mkv;
-
-import '../kernel.dart';
-import '../models.dart';
 
 RegisteredVideoKernel createMediaKitVideoKernel() {
   return RegisteredVideoKernel(
@@ -33,8 +31,11 @@ const VideoKernelDescriptor mediaKitVideoKernelDescriptor =
     );
 
 class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
-  MediaKitVideoKernelAdapter({VideoKernelDescriptor? descriptor})
-    : _descriptor = descriptor ?? mediaKitVideoKernelDescriptor;
+  MediaKitVideoKernelAdapter({
+    VideoKernelDescriptor? descriptor,
+    mk.Player? nativePlayer,
+  }) : _descriptor = descriptor ?? mediaKitVideoKernelDescriptor,
+       _player = nativePlayer;
 
   final VideoKernelDescriptor _descriptor;
   mk.Player? _player;
@@ -120,6 +121,15 @@ class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
     final mk.Player player = _requirePlayer();
     await player.setRate(speed);
     return _stateFromPlayer(state).copyWith(speed: speed);
+  }
+
+  @override
+  Future<UnifiedVideoState> setVolume(
+    double volume,
+    UnifiedVideoState state,
+  ) async {
+    await _requirePlayer().setVolume(volume * 100);
+    return _stateFromPlayer(state).copyWith(volume: volume);
   }
 
   @override

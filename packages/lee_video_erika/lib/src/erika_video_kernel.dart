@@ -5,9 +5,7 @@ import 'package:erika_flutter/erika_flutter.dart' as erika;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
-import '../kernel.dart';
-import '../models.dart';
+import 'package:lee_video/lee_video.dart';
 
 RegisteredVideoKernel createErikaVideoKernel() {
   return RegisteredVideoKernel(
@@ -165,6 +163,15 @@ class ErikaVideoKernelAdapter extends VideoKernelAdapter {
   ) async {
     await _player.setPlaybackRate(speed);
     return _stateFromEvent(state.copyWith(speed: speed)).copyWith(speed: speed);
+  }
+
+  @override
+  Future<UnifiedVideoState> setVolume(
+    double volume,
+    UnifiedVideoState state,
+  ) async {
+    await _player.setVolume(volume);
+    return state.copyWith(volume: volume);
   }
 
   @override
