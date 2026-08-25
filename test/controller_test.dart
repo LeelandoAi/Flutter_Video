@@ -300,6 +300,7 @@ void main() {
       'second.initialize',
       'second.open',
       'second.seek',
+      'second.snapshot',
       'second.speed',
       'second.fit',
       'second.volume',
@@ -374,6 +375,207 @@ void main() {
 
     expect(player.value.activeKernelId, 'delayed-seek');
     expect(player.value.position, const Duration(minutes: 3));
+  });
+
+  test('切换内核六次 seek 后进度仍未收敛会回滚', () async {
+    await _expectInaccurateSeekRollsBack(
+      controller: controller,
+      source: source,
+      offset: const Duration(seconds: -5),
+    );
+  });
+
+  test('切换内核 seek 向前超调超过一秒也会回滚', () async {
+    await _expectInaccurateSeekRollsBack(
+      controller: controller,
+      source: source,
+      offset: const Duration(seconds: 5),
+    );
+  });
+
+  test('全屏命令与切核事务串行且不会被旧快照覆盖', () async {
+    const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
+      id: 'blocked-fullscreen-switch',
+      displayName: '阻塞全屏切换测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _BlockedSwitchVideoKernelAdapter adapter =
+        _BlockedSwitchVideoKernelAdapter(firstDescriptor);
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(
+          descriptor: firstDescriptor,
+          create: () => adapter,
+        ),
+        createFakeVideoKernel(id: 'second'),
+      ],
+      preference: KernelPreference.exact(firstDescriptor.id),
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    await player.enterFullscreen(syncPlatform: false);
+    final Future<void> switchFuture = player.switchKernel('second');
+    await adapter.snapshotStarted.future;
+
+    var exitCompleted = false;
+    final Future<void> exitFuture = player
+        .exitFullscreen(syncPlatform: false)
+        .whenComplete(() => exitCompleted = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(exitCompleted, isFalse);
+
+    adapter.releaseSnapshot();
+    await switchFuture;
+    await exitFuture;
+
+    expect(player.value.activeKernelId, 'second');
+    expect(player.value.fullscreen, isFalse);
+  });
+
+  test('普通 open 不会让旧内核 snapshot 异常阻断候选回退', () async {
+    const VideoKernelDescriptor oldDescriptor = VideoKernelDescriptor(
+      id: 'old',
+      displayName: '旧内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    const VideoKernelDescriptor failingDescriptor = VideoKernelDescriptor(
+      id: 'failing',
+      displayName: '打开失败内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(
+          descriptor: oldDescriptor,
+          create: () => _ThrowingSnapshotVideoKernelAdapter(oldDescriptor),
+        ),
+        RegisteredVideoKernel(
+          descriptor: failingDescriptor,
+          create: () => _FailingOpenVideoKernelAdapter(failingDescriptor),
+        ),
+        createFakeVideoKernel(id: 'fallback'),
+      ],
+      preference: KernelPreference.exact(oldDescriptor.id),
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    await player.open(
+      VideoSource.network('https://example.com/next.mp4'),
+      preference: const KernelPreference.ordered(<String>[
+        'failing',
+        'fallback',
+      ], includeUnspecified: false),
+    );
+
+    expect(player.value.activeKernelId, 'fallback');
+    expect(player.value.fallbackHistory, contains('failing'));
+  });
+
+  test('精确内核运行时冲突保留异常类型和 runtimeConflict 错误码', () async {
+    final VideoKernelRuntimeCoordinator runtimeCoordinator =
+        VideoKernelRuntimeCoordinator();
+    final RegisteredVideoKernel occupied = _createRuntimeTestKernel(
+      id: 'occupied',
+      identity: 'fvp',
+    );
+    final RegisteredVideoKernel requested = _createRuntimeTestKernel(
+      id: 'requested',
+      identity: 'official',
+    );
+    final UnifiedVideoController first = controller(
+      kernels: <RegisteredVideoKernel>[occupied],
+      preference: KernelPreference.exact('occupied'),
+      runtimeCoordinator: runtimeCoordinator,
+      stateRefreshInterval: null,
+    );
+    final UnifiedVideoController second = controller(
+      kernels: <RegisteredVideoKernel>[requested],
+      preference: KernelPreference.exact('requested'),
+      runtimeCoordinator: runtimeCoordinator,
+      stateRefreshInterval: null,
+    );
+    final UnifiedVideoController fallback = controller(
+      kernels: <RegisteredVideoKernel>[
+        requested,
+        createFakeVideoKernel(id: 'fallback'),
+      ],
+      preference: const KernelPreference.ordered(<String>[
+        'requested',
+        'fallback',
+      ], includeUnspecified: false),
+      runtimeCoordinator: runtimeCoordinator,
+      stateRefreshInterval: null,
+    );
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+    addTearDown(fallback.dispose);
+
+    await first.open(source());
+    await expectLater(
+      second.open(source()),
+      throwsA(isA<KernelRuntimeConflictException>()),
+    );
+
+    expect(second.value.lifecycle, UnifiedVideoLifecycle.failed);
+    expect(second.value.error?.code, UnifiedVideoErrorCode.runtimeConflict);
+    expect(second.value.error?.diagnostics['runtimeGroup'], 'shared-platform');
+    expect(second.value.error?.diagnostics['activeIdentity'], 'fvp');
+    expect(second.value.error?.diagnostics['requestedIdentity'], 'official');
+
+    await fallback.open(source());
+    expect(fallback.value.activeKernelId, 'fallback');
+    expect(fallback.value.fallbackHistory, contains('requested'));
+  });
+
+  test('目标内核清理失败会进入 KernelSwitchException 诊断并完成回滚', () async {
+    const VideoKernelDescriptor failingDescriptor = VideoKernelDescriptor(
+      id: 'failing-cleanup',
+      displayName: '清理失败内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        createFakeVideoKernel(id: 'stable'),
+        RegisteredVideoKernel(
+          descriptor: failingDescriptor,
+          create: () =>
+              _FailingOpenAndCleanupVideoKernelAdapter(failingDescriptor),
+        ),
+      ],
+      preference: KernelPreference.exact('stable'),
+      runtimeCoordinator: VideoKernelRuntimeCoordinator(),
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    await player.seek(const Duration(seconds: 30));
+
+    late KernelSwitchException exception;
+    try {
+      await player.switchKernel(failingDescriptor.id);
+      fail('切换应失败');
+    } on KernelSwitchException catch (error) {
+      exception = error;
+    }
+
+    expect(exception.rollbackSucceeded, isTrue);
+    expect(exception.targetError, isA<StateError>());
+    expect(exception.cleanupError, isA<StateError>());
+    expect(exception.cleanupError.toString(), contains('模拟目标内核清理失败'));
+    expect(player.value.activeKernelId, 'stable');
+    expect(
+      player.value.lastKernelSwitchError?.diagnostics['cleanupError'],
+      contains('模拟目标内核清理失败'),
+    );
   });
 
   test('注册表按偏好降级选择兼容内核并记录跳过历史', () async {
@@ -507,6 +709,29 @@ class _FailingOpenVideoKernelAdapter extends FakeVideoKernelAdapter {
     UnifiedVideoState state,
   ) async {
     throw StateError('模拟打开失败');
+  }
+}
+
+class _FailingOpenAndCleanupVideoKernelAdapter
+    extends _FailingOpenVideoKernelAdapter {
+  _FailingOpenAndCleanupVideoKernelAdapter(super.descriptor);
+
+  @override
+  String get runtimeGroup => 'failing-cleanup-runtime';
+
+  @override
+  Future<void> deactivateRuntime() async {
+    throw StateError('模拟目标内核清理失败');
+  }
+}
+
+class _ThrowingSnapshotVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _ThrowingSnapshotVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  @override
+  Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
+    throw StateError('模拟旧内核 snapshot 失败');
   }
 }
 
@@ -654,6 +879,124 @@ class _DelayedSeekVideoKernelAdapter extends FakeVideoKernelAdapter {
   Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
     return state.copyWith(position: _position);
   }
+}
+
+class _InaccurateSeekVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _InaccurateSeekVideoKernelAdapter(
+    VideoKernelDescriptor descriptor,
+    this.offset,
+  ) : super(descriptor: descriptor);
+
+  final Duration offset;
+  Duration _position = Duration.zero;
+  int seekAttempts = 0;
+
+  @override
+  Future<UnifiedVideoState> open(
+    VideoSource source,
+    UnifiedVideoState state,
+  ) async {
+    return (await super.open(source, state)).copyWith(position: _position);
+  }
+
+  @override
+  Future<UnifiedVideoState> seek(
+    Duration position,
+    UnifiedVideoState state,
+  ) async {
+    seekAttempts += 1;
+    _position = position + offset;
+    return state.copyWith(position: _position);
+  }
+
+  @override
+  Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
+    return state.copyWith(position: _position);
+  }
+}
+
+class _RuntimeTestVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _RuntimeTestVideoKernelAdapter({
+    required VideoKernelDescriptor descriptor,
+    required this.identity,
+  }) : super(descriptor: descriptor);
+
+  final String identity;
+
+  @override
+  String get runtimeGroup => 'shared-platform';
+
+  @override
+  String get runtimeIdentity => identity;
+}
+
+RegisteredVideoKernel _createRuntimeTestKernel({
+  required String id,
+  required String identity,
+}) {
+  final VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+    id: id,
+    displayName: id,
+    supportedPlatforms: const <UnifiedVideoPlatform>{
+      UnifiedVideoPlatform.android,
+    },
+    supportedSourceTypes: const <VideoSourceType>{VideoSourceType.network},
+  );
+  return RegisteredVideoKernel(
+    descriptor: descriptor,
+    create: () => _RuntimeTestVideoKernelAdapter(
+      descriptor: descriptor,
+      identity: identity,
+    ),
+  );
+}
+
+Future<void> _expectInaccurateSeekRollsBack({
+  required UnifiedVideoController Function({
+    List<RegisteredVideoKernel>? kernels,
+    KernelPreference preference,
+    UnifiedVideoPlatform platform,
+    VideoKernelRuntimeCoordinator? runtimeCoordinator,
+    Duration? stateRefreshInterval,
+  })
+  controller,
+  required VideoSource Function() source,
+  required Duration offset,
+}) async {
+  const VideoKernelDescriptor inaccurateDescriptor = VideoKernelDescriptor(
+    id: 'inaccurate-seek',
+    displayName: '不准确 seek 测试内核',
+    supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+    supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+  );
+  late _InaccurateSeekVideoKernelAdapter inaccurateAdapter;
+  final UnifiedVideoController player = controller(
+    kernels: <RegisteredVideoKernel>[
+      createFakeVideoKernel(id: 'stable'),
+      RegisteredVideoKernel(
+        descriptor: inaccurateDescriptor,
+        create: () => inaccurateAdapter = _InaccurateSeekVideoKernelAdapter(
+          inaccurateDescriptor,
+          offset,
+        ),
+      ),
+    ],
+    preference: KernelPreference.exact('stable'),
+    stateRefreshInterval: null,
+  );
+  addTearDown(player.dispose);
+
+  await player.open(source());
+  await player.seek(const Duration(minutes: 3));
+
+  await expectLater(
+    player.switchKernel(inaccurateDescriptor.id),
+    throwsA(isA<KernelSwitchException>()),
+  );
+
+  expect(inaccurateAdapter.seekAttempts, 6);
+  expect(player.value.activeKernelId, 'stable');
+  expect(player.value.position, const Duration(minutes: 3));
 }
 
 class _LoggingVideoKernelAdapter extends FakeVideoKernelAdapter {

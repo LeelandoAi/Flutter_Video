@@ -10,7 +10,7 @@ part 'fvp_video_player_adapter.dart';
 RegisteredVideoKernel createFvpVideoKernel() {
   return RegisteredVideoKernel(
     descriptor: fvpVideoKernelDescriptor,
-    create: _FvpVideoPlayerAdapter.new,
+    create: FvpVideoKernelAdapter.new,
   );
 }
 

@@ -1,6 +1,6 @@
 part of 'fvp_video_kernel.dart';
 
-class _FvpVideoPlayerAdapter extends VideoKernelAdapter {
+class FvpVideoKernelAdapter extends VideoKernelAdapter {
   VideoPlayerController? _controller;
 
   @override

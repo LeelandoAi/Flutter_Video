@@ -14,6 +14,7 @@ class KernelSwitchException implements Exception {
     required this.position,
     required this.targetError,
     required this.rollbackSucceeded,
+    this.cleanupError,
     this.rollbackError,
   });
 
@@ -22,6 +23,7 @@ class KernelSwitchException implements Exception {
   final Duration position;
   final Object targetError;
   final bool rollbackSucceeded;
+  final Object? cleanupError;
   final Object? rollbackError;
 
   @override
@@ -30,6 +32,16 @@ class KernelSwitchException implements Exception {
         ? '切换内核 $fromKernelId 到 $toKernelId 失败，已恢复原内核。'
         : '切换内核 $fromKernelId 到 $toKernelId 失败，且恢复原内核失败。';
   }
+}
+
+class _KernelAdapterCleanupException implements Exception {
+  const _KernelAdapterCleanupException({
+    required this.operationError,
+    required this.cleanupError,
+  });
+
+  final Object operationError;
+  final Object cleanupError;
 }
 
 class _KernelSwitchSnapshot {
@@ -128,7 +140,16 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
         !UnifiedVideoFullscreenPlatform.isFullscreenOwner(this)) {
       return;
     }
-    value = value.copyWith(fullscreen: fullscreen, clearError: true);
+    unawaited(
+      _enqueue<void>(() async {
+        if (_disposed ||
+            fullscreen == value.fullscreen ||
+            !UnifiedVideoFullscreenPlatform.isFullscreenOwner(this)) {
+          return;
+        }
+        value = value.copyWith(fullscreen: fullscreen, clearError: true);
+      }),
+    );
   }
 
   Future<T> _enqueue<T>(Future<T> Function() operation) {
@@ -191,6 +212,10 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
           if (!_canCommitAsyncState(generation)) {
             return;
           }
+          if (error is KernelRuntimeConflictException &&
+              !this.preference.allowRuntimeFallback) {
+            rethrow;
+          }
           lastRuntimeError = error;
           runtimeFailures.add('${kernel.descriptor.id}: $error');
           skippedKernelIds.add(kernel.descriptor.id);
@@ -208,6 +233,27 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
             .toList(growable: false),
         skippedKernelIds: skippedKernelIds,
       );
+    } on KernelRuntimeConflictException catch (error) {
+      _stopStateRefresh();
+      _commitAsyncState(
+        value.copyWith(
+          lifecycle: UnifiedVideoLifecycle.failed,
+          error: UnifiedVideoError(
+            code: UnifiedVideoErrorCode.runtimeConflict,
+            message: '目标播放器内核运行时与当前占用冲突。',
+            backendMessage: error.toString(),
+            diagnostics: <String, Object?>{
+              'runtimeGroup': error.group,
+              'activeIdentity': error.activeIdentity,
+              'requestedIdentity': error.requestedIdentity,
+            },
+          ),
+          fallbackHistory: skippedKernelIds,
+          clearActiveKernelId: true,
+        ),
+        generation,
+      );
+      rethrow;
     } on UnsupportedKernelException catch (error) {
       final UnifiedVideoError unifiedError = runtimeFailures.isEmpty
           ? error.toError()
@@ -333,7 +379,11 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     });
   }
 
-  Future<void> enterFullscreen({bool syncPlatform = true}) async {
+  Future<void> enterFullscreen({bool syncPlatform = true}) {
+    return _enqueue<void>(() => _enterFullscreen(syncPlatform: syncPlatform));
+  }
+
+  Future<void> _enterFullscreen({required bool syncPlatform}) async {
     _ensureActive();
     claimFullscreenOwnership();
     value = value.copyWith(fullscreen: true, clearError: true);
@@ -342,7 +392,11 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     }
   }
 
-  Future<void> exitFullscreen({bool syncPlatform = true}) async {
+  Future<void> exitFullscreen({bool syncPlatform = true}) {
+    return _enqueue<void>(() => _exitFullscreen(syncPlatform: syncPlatform));
+  }
+
+  Future<void> _exitFullscreen({required bool syncPlatform}) async {
     _ensureActive();
     value = value.copyWith(fullscreen: false, clearError: true);
     if (syncPlatform) {
@@ -350,7 +404,11 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     }
   }
 
-  Future<void> syncFullscreenPlatform() async {
+  Future<void> syncFullscreenPlatform() {
+    return _enqueue<void>(_syncFullscreenPlatform);
+  }
+
+  Future<void> _syncFullscreenPlatform() async {
     _ensureActive();
     if (value.fullscreen) {
       await UnifiedVideoFullscreenPlatform.enter(_platform);
@@ -403,14 +461,20 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
         ),
         generation,
       );
-    } catch (targetError) {
+    } catch (rawTargetError) {
       if (!_canCommitAsyncState(generation)) {
         return;
       }
+      Object targetError = rawTargetError;
+      Object? cleanupError;
+      if (rawTargetError is _KernelAdapterCleanupException) {
+        targetError = rawTargetError.operationError;
+        cleanupError = rawTargetError.cleanupError;
+      }
       try {
         await _disposeActiveAdapter();
-      } catch (_) {
-        // 目标内核清理失败不应阻断原内核回滚。
+      } catch (error) {
+        cleanupError ??= error;
       }
       if (!_canCommitAsyncState(generation)) {
         return;
@@ -432,6 +496,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
           position: snapshot.position,
           targetError: targetError,
           rollbackSucceeded: true,
+          cleanupError: cleanupError,
         );
         final UnifiedVideoError error = _kernelSwitchError(exception);
         if (!_commitAsyncState(
@@ -458,6 +523,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
           position: snapshot.position,
           targetError: targetError,
           rollbackSucceeded: false,
+          cleanupError: cleanupError,
           rollbackError: rollbackError,
         );
         final UnifiedVideoError error = _kernelSwitchError(exception);
@@ -499,7 +565,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
       return _commitAsyncState(next, generation, adapter: activeAdapter);
     }
 
-    await _disposeActiveAdapter(snapshot: activeAdapter != null);
+    await _disposeActiveAdapter();
     if (!_canCommitAsyncState(generation)) {
       return false;
     }
@@ -542,12 +608,12 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     try {
       lease = await _runtimeCoordinator.acquire(adapter);
       if (!_canCommitAsyncState(generation)) {
-        await _discardAdapter(adapter, lease);
+        await _discardAdapterAfterCancellation(adapter, lease);
         return false;
       }
       await adapter.initialize();
       if (!_canCommitAsyncState(generation)) {
-        await _discardAdapter(adapter, lease);
+        await _discardAdapterAfterCancellation(adapter, lease);
         return false;
       }
       _adapter = adapter;
@@ -560,21 +626,31 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
         generation,
         adapter: adapter,
       )) {
-        await _discardAdapter(adapter, lease);
+        await _discardAdapterAfterCancellation(adapter, lease);
         return false;
       }
       final UnifiedVideoState next = await adapter.open(source, value);
       if (!_commitAsyncState(next, generation, adapter: adapter)) {
-        await _discardAdapter(adapter, lease);
+        await _discardAdapterAfterCancellation(adapter, lease);
         return false;
       }
       return true;
-    } catch (_) {
-      await _discardAdapter(adapter, lease);
+    } catch (error, stackTrace) {
+      try {
+        await _discardAdapter(adapter, lease);
+      } catch (cleanupError) {
+        if (!_canCommitAsyncState(generation)) {
+          return false;
+        }
+        throw _KernelAdapterCleanupException(
+          operationError: error,
+          cleanupError: cleanupError,
+        );
+      }
       if (!_canCommitAsyncState(generation)) {
         return false;
       }
-      rethrow;
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
@@ -586,14 +662,21 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
       _adapter = null;
       _runtimeLease = null;
     }
+    await _disposeAdapterAndRelease(adapter, lease);
+  }
+
+  Future<void> _discardAdapterAfterCancellation(
+    VideoKernelAdapter adapter,
+    VideoKernelRuntimeLease? lease,
+  ) async {
     try {
-      await _disposeAdapterAndRelease(adapter, lease);
+      await _discardAdapter(adapter, lease);
     } catch (_) {
-      // 保留候选内核的原始失败原因或取消语义。
+      // 控制器已被释放或操作已失效，不能再向 notifier 提交清理诊断。
     }
   }
 
-  Future<void> _disposeActiveAdapter({bool snapshot = false}) async {
+  Future<void> _disposeActiveAdapter() async {
     final VideoKernelAdapter? adapter = _adapter;
     final VideoKernelRuntimeLease? lease = _runtimeLease;
     if (adapter == null) {
@@ -604,9 +687,6 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
       return;
     }
 
-    if (snapshot) {
-      await adapter.snapshot(value);
-    }
     _adapter = null;
     _runtimeLease = null;
     await _disposeAdapterAndRelease(adapter, lease);
@@ -694,6 +774,8 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
         'rollbackSucceeded': exception.rollbackSucceeded,
         if (exception.rollbackError != null)
           'rollbackError': exception.rollbackError.toString(),
+        if (exception.cleanupError != null)
+          'cleanupError': exception.cleanupError.toString(),
       },
     );
   }
@@ -710,9 +792,11 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
         if (!_canCommitAsyncState(generation)) {
           return false;
         }
-        await _refreshAdapterState();
+        if (!await _refreshAdapterStateForOperation(generation)) {
+          return false;
+        }
         final int driftMs = (value.position - position).inMilliseconds.abs();
-        if (driftMs <= 700 || value.position >= position) {
+        if (driftMs <= 1000) {
           return true;
         }
       } catch (error) {
@@ -726,7 +810,16 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     if (lastError != null) {
       throw lastError;
     }
-    return true;
+    throw StateError(
+      '播放器内核恢复进度失败：目标 ${position.inMilliseconds}ms，'
+      '实际 ${value.position.inMilliseconds}ms。',
+    );
+  }
+
+  Future<bool> _refreshAdapterStateForOperation(int generation) async {
+    final VideoKernelAdapter adapter = _requireAdapter();
+    final UnifiedVideoState next = await adapter.snapshot(value);
+    return _commitAsyncState(next, generation, adapter: adapter);
   }
 
   Future<void> _runCommand(

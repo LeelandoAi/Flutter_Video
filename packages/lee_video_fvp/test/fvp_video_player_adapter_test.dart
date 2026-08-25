@@ -24,7 +24,15 @@ void main() {
     await adapter.dispose();
   });
 
-  test('FVP 私有 controller wrapper 映射完整播放命令和 Surface', () async {
+  test('公共入口公开 FvpVideoKernelAdapter 且工厂创建该类型', () {
+    final FvpVideoKernelAdapter publicAdapter = FvpVideoKernelAdapter();
+    addTearDown(publicAdapter.dispose);
+
+    expect(publicAdapter.descriptor, fvpVideoKernelDescriptor);
+    expect(createFvpVideoKernel().create(), isA<FvpVideoKernelAdapter>());
+  });
+
+  test('FVP controller wrapper 映射完整播放命令和 Surface', () async {
     UnifiedVideoState state = await adapter.open(
       VideoSource.network(
         'https://example.com/video.mp4',

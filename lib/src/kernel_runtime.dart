@@ -72,8 +72,8 @@ class VideoKernelRuntimeCoordinator {
         return;
       }
 
-      _slots.remove(group);
       await slot.adapter.deactivateRuntime();
+      _slots.remove(group);
     });
   }
 

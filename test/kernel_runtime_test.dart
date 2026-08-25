@@ -85,6 +85,38 @@ void main() {
     );
   });
 
+  test('最后租约停用失败后保留槽位并阻止不同身份获取', () async {
+    final coordinator = VideoKernelRuntimeCoordinator();
+    final failing = _FailingDeactivateRuntimeFakeAdapter(
+      group: 'platform',
+      identity: 'fvp',
+    );
+    final official = _RuntimeFakeAdapter(
+      group: 'platform',
+      identity: 'official',
+    );
+    final lease = await coordinator.acquire(failing);
+
+    await expectLater(lease.release(), throwsA(isA<StateError>()));
+    await expectLater(
+      coordinator.acquire(official),
+      throwsA(
+        isA<KernelRuntimeConflictException>()
+            .having(
+              (KernelRuntimeConflictException error) => error.activeIdentity,
+              'activeIdentity',
+              'fvp',
+            )
+            .having(
+              (KernelRuntimeConflictException error) => error.requestedIdentity,
+              'requestedIdentity',
+              'official',
+            ),
+      ),
+    );
+    expect(official.activationCount, 0);
+  });
+
   test('运行时冲突异常提供中文诊断消息', () {
     expect(
       const KernelRuntimeConflictException(
@@ -178,5 +210,18 @@ class _BlockingRuntimeFakeAdapter extends _RuntimeFakeAdapter {
     activationStarted.complete();
     await allowActivation.future;
     await super.activateRuntime();
+  }
+}
+
+class _FailingDeactivateRuntimeFakeAdapter extends _RuntimeFakeAdapter {
+  _FailingDeactivateRuntimeFakeAdapter({
+    required super.group,
+    required super.identity,
+  });
+
+  @override
+  Future<void> deactivateRuntime() async {
+    await super.deactivateRuntime();
+    throw StateError('模拟运行时停用失败');
   }
 }
