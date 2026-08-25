@@ -5,16 +5,41 @@ class KernelRuntimeConflictException implements Exception {
     required this.group,
     required this.activeIdentity,
     required this.requestedIdentity,
+    this.cleanupError,
   });
 
   final String group;
   final String activeIdentity;
   final String requestedIdentity;
+  final Object? cleanupError;
 
   @override
   String toString() {
+    final String cleanupDetails = cleanupError == null
+        ? ''
+        : '，失败 adapter 清理异常：$cleanupError';
     return 'KernelRuntimeConflictException(运行时组 $group 已被身份 '
-        '$activeIdentity 占用，无法请求身份 $requestedIdentity)';
+        '$activeIdentity 占用，无法请求身份 $requestedIdentity$cleanupDetails)';
+  }
+}
+
+class KernelRuntimeRecoveryException implements Exception {
+  const KernelRuntimeRecoveryException({
+    required this.group,
+    required this.identity,
+    required this.deactivationError,
+    required this.recoveryError,
+  });
+
+  final String group;
+  final String identity;
+  final Object deactivationError;
+  final Object recoveryError;
+
+  @override
+  String toString() {
+    return 'KernelRuntimeRecoveryException(运行时组 $group 的身份 $identity '
+        '停用失败后恢复失败；停用异常：$deactivationError；恢复异常：$recoveryError)';
   }
 }
 
@@ -45,6 +70,29 @@ class VideoKernelRuntimeCoordinator {
             requestedIdentity: adapter.runtimeIdentity,
           );
         }
+        if (activeSlot.poisoned) {
+          try {
+            await adapter.activateRuntime();
+          } catch (error, stackTrace) {
+            Error.throwWithStackTrace(
+              KernelRuntimeRecoveryException(
+                group: group,
+                identity: activeSlot.identity,
+                deactivationError: activeSlot.deactivationError!,
+                recoveryError: error,
+              ),
+              stackTrace,
+            );
+          }
+          final _RuntimeSlot recoveredSlot = _RuntimeSlot(
+            adapter: adapter,
+            identity: adapter.runtimeIdentity,
+          );
+          _slots[group] = recoveredSlot;
+          return _VideoKernelRuntimeLease(
+            () => _releaseGrouped(group, recoveredSlot),
+          );
+        }
         activeSlot.referenceCount += 1;
         return _VideoKernelRuntimeLease(
           () => _releaseGrouped(group, activeSlot),
@@ -72,7 +120,13 @@ class VideoKernelRuntimeCoordinator {
         return;
       }
 
-      await slot.adapter.deactivateRuntime();
+      try {
+        await slot.adapter.deactivateRuntime();
+      } catch (error, stackTrace) {
+        slot.poisoned = true;
+        slot.deactivationError = error;
+        Error.throwWithStackTrace(error, stackTrace);
+      }
       _slots.remove(group);
     });
   }
@@ -97,6 +151,8 @@ class _RuntimeSlot {
   final VideoKernelAdapter adapter;
   final String identity;
   int referenceCount = 1;
+  bool poisoned = false;
+  Object? deactivationError;
 }
 
 class _VideoKernelRuntimeLease implements VideoKernelRuntimeLease {

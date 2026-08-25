@@ -136,7 +136,6 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     }
     final bool? fullscreen = UnifiedVideoFullscreenPlatform.changes.value;
     if (fullscreen == null ||
-        fullscreen == value.fullscreen ||
         !UnifiedVideoFullscreenPlatform.isFullscreenOwner(this)) {
       return;
     }
@@ -246,6 +245,8 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
               'runtimeGroup': error.group,
               'activeIdentity': error.activeIdentity,
               'requestedIdentity': error.requestedIdentity,
+              if (error.cleanupError != null)
+                'cleanupError': error.cleanupError.toString(),
             },
           ),
           fallbackHistory: skippedKernelIds,
@@ -443,7 +444,14 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     }
 
     try {
-      await _disposeActiveAdapter();
+      try {
+        await _disposeActiveAdapter();
+      } catch (cleanupError) {
+        throw _KernelAdapterCleanupException(
+          operationError: StateError('切换目标内核前释放原内核失败。'),
+          cleanupError: cleanupError,
+        );
+      }
       if (!_canCommitAsyncState(generation)) {
         return;
       }
@@ -641,6 +649,14 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
       } catch (cleanupError) {
         if (!_canCommitAsyncState(generation)) {
           return false;
+        }
+        if (error is KernelRuntimeConflictException) {
+          throw KernelRuntimeConflictException(
+            group: error.group,
+            activeIdentity: error.activeIdentity,
+            requestedIdentity: error.requestedIdentity,
+            cleanupError: cleanupError,
+          );
         }
         throw _KernelAdapterCleanupException(
           operationError: error,

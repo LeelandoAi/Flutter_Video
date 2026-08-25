@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lee_video/lee_video.dart';
+import 'package:lee_video/src/fullscreen_platform.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -435,6 +436,42 @@ void main() {
     expect(player.value.fullscreen, isFalse);
   });
 
+  test('原生全屏事件排队时保留最后一次平台状态', () async {
+    UnifiedVideoFullscreenPlatform.changes.value = null;
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'blocked-native-fullscreen',
+      displayName: '阻塞原生全屏测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.macos},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _DelayedPlayVideoKernelAdapter adapter =
+        _DelayedPlayVideoKernelAdapter(descriptor);
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(descriptor: descriptor, create: () => adapter),
+      ],
+      platform: UnifiedVideoPlatform.macos,
+      stateRefreshInterval: null,
+    );
+    addTearDown(() {
+      player.dispose();
+      UnifiedVideoFullscreenPlatform.changes.value = null;
+    });
+
+    await player.open(source());
+    player.claimFullscreenOwnership();
+    final Future<void> playFuture = player.play();
+    await adapter.playStarted.future;
+
+    UnifiedVideoFullscreenPlatform.changes.value = true;
+    UnifiedVideoFullscreenPlatform.changes.value = false;
+    adapter.releasePlay();
+
+    await playFuture;
+    await player.pause();
+    expect(player.value.fullscreen, isFalse);
+  });
+
   test('普通 open 不会让旧内核 snapshot 异常阻断候选回退', () async {
     const VideoKernelDescriptor oldDescriptor = VideoKernelDescriptor(
       id: 'old',
@@ -532,6 +569,119 @@ void main() {
     await fallback.open(source());
     expect(fallback.value.activeKernelId, 'fallback');
     expect(fallback.value.fallbackHistory, contains('requested'));
+  });
+
+  test('精确运行时冲突与 adapter 清理同时失败时仍保留冲突诊断', () async {
+    final VideoKernelRuntimeCoordinator runtimeCoordinator =
+        VideoKernelRuntimeCoordinator();
+    final RegisteredVideoKernel occupied = _createRuntimeTestKernel(
+      id: 'occupied-double-failure',
+      identity: 'fvp',
+    );
+    const VideoKernelDescriptor requestedDescriptor = VideoKernelDescriptor(
+      id: 'requested-double-failure',
+      displayName: '冲突且清理失败内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final RegisteredVideoKernel requested = RegisteredVideoKernel(
+      descriptor: requestedDescriptor,
+      create: () => _ConflictAndDisposeFailingAdapter(requestedDescriptor),
+    );
+    final UnifiedVideoController first = controller(
+      kernels: <RegisteredVideoKernel>[occupied],
+      preference: KernelPreference.exact(occupied.descriptor.id),
+      runtimeCoordinator: runtimeCoordinator,
+      stateRefreshInterval: null,
+    );
+    final UnifiedVideoController second = controller(
+      kernels: <RegisteredVideoKernel>[requested],
+      preference: KernelPreference.exact(requested.descriptor.id),
+      runtimeCoordinator: runtimeCoordinator,
+      stateRefreshInterval: null,
+    );
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+
+    await first.open(source());
+
+    late KernelRuntimeConflictException exception;
+    try {
+      await second.open(source());
+      fail('精确运行时冲突应失败');
+    } on KernelRuntimeConflictException catch (error) {
+      exception = error;
+    }
+
+    expect(exception.cleanupError, isA<StateError>());
+    expect(exception.cleanupError.toString(), contains('模拟冲突 adapter 清理失败'));
+    expect(second.value.error?.code, UnifiedVideoErrorCode.runtimeConflict);
+    expect(
+      second.value.error?.diagnostics['cleanupError'],
+      contains('模拟冲突 adapter 清理失败'),
+    );
+  });
+
+  test('原内核运行时停用失败归类为 cleanupError 并重新激活后回滚', () async {
+    const VideoKernelDescriptor stableDescriptor = VideoKernelDescriptor(
+      id: 'stable-runtime-cleanup',
+      displayName: '原内核清理失败测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final RegisteredVideoKernel target = createFakeVideoKernel(
+      id: 'unopened-target',
+    );
+    var stableCreateCount = 0;
+    var targetCreateCount = 0;
+    late _FailOnceDeactivateRuntimeAdapter recoveredAdapter;
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(
+          descriptor: stableDescriptor,
+          create: () {
+            final bool failDeactivation = stableCreateCount++ == 0;
+            final adapter = _FailOnceDeactivateRuntimeAdapter(
+              stableDescriptor,
+              failDeactivation: failDeactivation,
+            );
+            if (!failDeactivation) {
+              recoveredAdapter = adapter;
+            }
+            return adapter;
+          },
+        ),
+        RegisteredVideoKernel(
+          descriptor: target.descriptor,
+          create: () {
+            targetCreateCount += 1;
+            return target.create();
+          },
+        ),
+      ],
+      preference: KernelPreference.exact(stableDescriptor.id),
+      runtimeCoordinator: VideoKernelRuntimeCoordinator(),
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+
+    late KernelSwitchException exception;
+    try {
+      await player.switchKernel(target.descriptor.id);
+      fail('原内核停用失败时切换应回滚');
+    } on KernelSwitchException catch (error) {
+      exception = error;
+    }
+
+    expect(exception.rollbackSucceeded, isTrue);
+    expect(exception.targetError.toString(), contains('释放原内核'));
+    expect(exception.cleanupError, isA<StateError>());
+    expect(exception.cleanupError.toString(), contains('模拟原内核运行时停用失败'));
+    expect(targetCreateCount, 0);
+    expect(recoveredAdapter.activationCount, 1);
+    expect(player.value.activeKernelId, stableDescriptor.id);
   });
 
   test('目标内核清理失败会进入 KernelSwitchException 诊断并完成回滚', () async {
@@ -722,6 +872,50 @@ class _FailingOpenAndCleanupVideoKernelAdapter
   @override
   Future<void> deactivateRuntime() async {
     throw StateError('模拟目标内核清理失败');
+  }
+}
+
+class _ConflictAndDisposeFailingAdapter extends FakeVideoKernelAdapter {
+  _ConflictAndDisposeFailingAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  @override
+  String get runtimeGroup => 'shared-platform';
+
+  @override
+  String get runtimeIdentity => 'official';
+
+  @override
+  Future<void> dispose() async {
+    throw StateError('模拟冲突 adapter 清理失败');
+  }
+}
+
+class _FailOnceDeactivateRuntimeAdapter extends FakeVideoKernelAdapter {
+  _FailOnceDeactivateRuntimeAdapter(
+    VideoKernelDescriptor descriptor, {
+    required this.failDeactivation,
+  }) : super(descriptor: descriptor);
+
+  final bool failDeactivation;
+  int activationCount = 0;
+
+  @override
+  String get runtimeGroup => 'stable-runtime-cleanup-group';
+
+  @override
+  String get runtimeIdentity => 'stable-runtime-cleanup-identity';
+
+  @override
+  Future<void> activateRuntime() async {
+    activationCount += 1;
+  }
+
+  @override
+  Future<void> deactivateRuntime() async {
+    if (failDeactivation) {
+      throw StateError('模拟原内核运行时停用失败');
+    }
   }
 }
 

@@ -117,6 +117,58 @@ void main() {
     expect(official.activationCount, 0);
   });
 
+  test('停用失败后相同身份会重新激活运行时而不是复用失效槽位', () async {
+    final coordinator = VideoKernelRuntimeCoordinator();
+    final failing = _FailingDeactivateRuntimeFakeAdapter(
+      group: 'platform',
+      identity: 'fvp',
+    );
+    final lease = await coordinator.acquire(failing);
+
+    await expectLater(lease.release(), throwsA(isA<StateError>()));
+
+    final recovered = _RuntimeFakeAdapter(group: 'platform', identity: 'fvp');
+    final recoveredLease = await coordinator.acquire(recovered);
+
+    expect(recovered.activationCount, 1);
+    await recoveredLease.release();
+    expect(recovered.deactivationCount, 1);
+  });
+
+  test('停用失败且同身份恢复失败时保留停用和恢复错误', () async {
+    final coordinator = VideoKernelRuntimeCoordinator();
+    final failing = _FailingDeactivateRuntimeFakeAdapter(
+      group: 'platform',
+      identity: 'fvp',
+    );
+    final lease = await coordinator.acquire(failing);
+    await expectLater(lease.release(), throwsA(isA<StateError>()));
+
+    final recovery = _FailingActivateRuntimeFakeAdapter(
+      group: 'platform',
+      identity: 'fvp',
+    );
+
+    await expectLater(
+      coordinator.acquire(recovery),
+      throwsA(
+        isA<KernelRuntimeRecoveryException>()
+            .having(
+              (KernelRuntimeRecoveryException error) =>
+                  error.deactivationError.toString(),
+              'deactivationError',
+              contains('模拟运行时停用失败'),
+            )
+            .having(
+              (KernelRuntimeRecoveryException error) =>
+                  error.recoveryError.toString(),
+              'recoveryError',
+              contains('模拟运行时恢复失败'),
+            ),
+      ),
+    );
+  });
+
   test('运行时冲突异常提供中文诊断消息', () {
     expect(
       const KernelRuntimeConflictException(
@@ -223,5 +275,18 @@ class _FailingDeactivateRuntimeFakeAdapter extends _RuntimeFakeAdapter {
   Future<void> deactivateRuntime() async {
     await super.deactivateRuntime();
     throw StateError('模拟运行时停用失败');
+  }
+}
+
+class _FailingActivateRuntimeFakeAdapter extends _RuntimeFakeAdapter {
+  _FailingActivateRuntimeFakeAdapter({
+    required super.group,
+    required super.identity,
+  });
+
+  @override
+  Future<void> activateRuntime() async {
+    await super.activateRuntime();
+    throw StateError('模拟运行时恢复失败');
   }
 }

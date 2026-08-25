@@ -1,0 +1,68 @@
+name: Windows 验证
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Windows 冷缓存构建
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 安装 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.6
+          channel: stable
+          cache: true
+          pub-cache: false
+
+      - name: 启用 Windows 桌面端
+        run: flutter config --enable-windows-desktop
+
+      - name: 解析依赖
+        run: flutter pub get
+
+      - name: 静态检查
+        run: flutter analyze
+
+      - name: 运行全部包测试
+        shell: pwsh
+        run: |
+          $packages = @(
+            ".",
+            "packages/lee_video_erika",
+            "packages/lee_video_media_kit",
+            "packages/lee_video_fvp",
+            "packages/lee_video_video_player",
+            "packages/lee_video_all",
+            "example"
+          )
+          foreach ($package in $packages) {
+            Write-Host "==> flutter test $package"
+            Push-Location $package
+            flutter test
+            $exitCode = $LASTEXITCODE
+            Pop-Location
+            if ($exitCode -ne 0) {
+              exit $exitCode
+            }
+          }
+
+      - name: 构建 Windows Demo
+        working-directory: example
+        run: flutter build windows --debug

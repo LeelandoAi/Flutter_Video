@@ -106,6 +106,9 @@ void main() {
         DataSourceType.network,
       ],
     );
+    expect(platform.sources[0].asset, 'assets/movie.mp4');
+    expect(platform.sources[1].uri, Uri.file('/tmp/movie.mp4').toString());
+    expect(platform.sources[2].uri, 'https://example.com/movie.mp4');
     await expectLater(
       adapter.open(
         VideoSource(
@@ -116,6 +119,28 @@ void main() {
       ),
       throwsUnsupportedError,
     );
+  });
+
+  testWidgets('FVP Surface 构建实际平台 View', (WidgetTester tester) async {
+    final UnifiedVideoState state = await adapter.open(
+      VideoSource.network('https://example.com/video.mp4'),
+      const UnifiedVideoState(),
+    );
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: adapter.buildSurface(_UnusedBuildContext(), state),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('recording-video-surface')),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.runAsync(adapter.dispose);
   });
 
   test('FVP adapter dispose 释放内部 VideoPlayerController', () async {
@@ -176,7 +201,7 @@ class _RecordingVideoPlayerPlatform extends VideoPlayerPlatform {
 
   @override
   Future<void> dispose(int playerId) async {
-    await _streams.remove(playerId)?.close();
+    _streams.remove(playerId);
     calls.add('dispose');
   }
 

@@ -4,3 +4,4 @@
 - 提供私有 `VideoPlayerController` wrapper 和统一播放状态映射。
 - 支持与官方 `video_player` 适配器同注册、同 View 串行切换。
 - 在最终运行时租约释放后恢复先前的 `VideoPlayerPlatform`。
+- 补齐 asset/file 精确地址和实际平台 Surface 构建验证。
