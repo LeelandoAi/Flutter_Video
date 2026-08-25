@@ -1,0 +1,24 @@
+name: lee_video_all
+description: 集成全部可选播放内核的 lee_video 全量便捷包，适合需要一次性启用所有原生播放引擎的应用。
+version: 0.2.0
+resolution: workspace
+repository: https://github.com/LeelandoAi/Flutter_Video/tree/main/packages/lee_video_all
+issue_tracker: https://github.com/LeelandoAi/Flutter_Video/issues
+
+environment:
+  sdk: ^3.12.2
+  flutter: '>=3.44.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  lee_video: ^0.2.0
+  lee_video_erika: ^0.2.0
+  lee_video_media_kit: ^0.2.0
+  lee_video_fvp: ^0.2.0
+  lee_video_video_player: ^0.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
