@@ -123,6 +123,24 @@ class VideoMetadata {
   final Map<String, Object?> extra;
 }
 
+class VideoEpisode {
+  const VideoEpisode({
+    required this.id,
+    required this.title,
+    required this.source,
+    this.subtitle,
+    this.duration,
+    this.extra = const <String, Object?>{},
+  });
+
+  final String id;
+  final String title;
+  final VideoSource source;
+  final String? subtitle;
+  final Duration? duration;
+  final Map<String, Object?> extra;
+}
+
 class BufferedRange {
   const BufferedRange({required this.start, required this.end});
 
