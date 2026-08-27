@@ -271,7 +271,7 @@ UnifiedVideoPlayer(
 
 ### 内置选集
 
-将片源作为 `VideoEpisode` 传入后，播放器会在内部打开上一集、下一集和选集面板中的目标集；`onEpisodeChanged` 只用于同步宿主状态或更新业务展示，不需要再次调用 `controller.open`。
+将片源作为 `VideoEpisode` 传入后，播放器会在内部打开上一集、下一集和选集面板中的目标集；`onEpisodeChanged` 只用于同步宿主状态或更新业务展示，不需要再次调用 `controller.open`。`initialEpisodeId` 只设置初始选中/高亮项，不会自动打开片源；宿主必须显式调用 `controller.open` 建立初始播放。
 
 ```dart
 final episodes = <VideoEpisode>[
@@ -282,6 +282,8 @@ final episodes = <VideoEpisode>[
     source: VideoSource.network('https://example.com/e01.m3u8'),
   ),
 ];
+
+await controller.open(episodes.first.source);
 
 UnifiedVideoPlayer(
   controller: controller,

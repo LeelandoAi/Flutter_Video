@@ -9,6 +9,7 @@ class PlayerControls extends StatelessWidget {
     required this.state,
     required this.metrics,
     required this.hasEpisodes,
+    required this.showFullscreen,
     required this.danmakuEnabled,
     required this.onPrevious,
     required this.onPlayPause,
@@ -26,6 +27,7 @@ class PlayerControls extends StatelessWidget {
   final UnifiedVideoState state;
   final PlayerViewMetrics metrics;
   final bool hasEpisodes;
+  final bool showFullscreen;
   final bool danmakuEnabled;
   final VoidCallback? onPrevious;
   final VoidCallback onPlayPause;
@@ -161,15 +163,16 @@ class PlayerControls extends StatelessWidget {
                       iconSize: metrics.iconSize,
                       onPressed: onOpenMore,
                     ),
-                  _ControlHitTarget.icon(
-                    key: const ValueKey<String>('fullscreen'),
-                    semanticLabel: state.fullscreen ? '退出全屏' : '进入全屏',
-                    icon: state.fullscreen
-                        ? Icons.fullscreen_exit
-                        : Icons.fullscreen,
-                    iconSize: metrics.iconSize,
-                    onPressed: onToggleFullscreen,
-                  ),
+                  if (showFullscreen)
+                    _ControlHitTarget.icon(
+                      key: const ValueKey<String>('fullscreen'),
+                      semanticLabel: state.fullscreen ? '退出全屏' : '进入全屏',
+                      icon: state.fullscreen
+                          ? Icons.fullscreen_exit
+                          : Icons.fullscreen,
+                      iconSize: metrics.iconSize,
+                      onPressed: onToggleFullscreen,
+                    ),
                 ],
               ),
             ],

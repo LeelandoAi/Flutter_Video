@@ -139,6 +139,9 @@ class PlayerSettingsPanel extends StatelessWidget {
               const SizedBox(height: 10),
               _SettingsGroup(
                 key: const ValueKey<String>('settings-group-picture'),
+                surfaceKey: const ValueKey<String>(
+                  'settings-group-picture-surface',
+                ),
                 title: '画面',
                 children: <Widget>[
                   _FitOptionsRow(
@@ -167,6 +170,9 @@ class PlayerSettingsPanel extends StatelessWidget {
               const SizedBox(height: 12),
               _SettingsGroup(
                 key: const ValueKey<String>('settings-group-playback'),
+                surfaceKey: const ValueKey<String>(
+                  'settings-group-playback-surface',
+                ),
                 title: '播放',
                 children: <Widget>[
                   _SettingsToggleRow(
@@ -186,6 +192,9 @@ class PlayerSettingsPanel extends StatelessWidget {
               const SizedBox(height: 12),
               _SettingsGroup(
                 key: const ValueKey<String>('settings-group-kernel'),
+                surfaceKey: const ValueKey<String>(
+                  'settings-group-kernel-surface',
+                ),
                 title: '播放器内核',
                 children: controller.compatibleKernels
                     .map((VideoKernelDescriptor descriptor) {
@@ -210,6 +219,9 @@ class PlayerSettingsPanel extends StatelessWidget {
               const SizedBox(height: 12),
               _SettingsGroup(
                 key: const ValueKey<String>('settings-group-diagnostics'),
+                surfaceKey: const ValueKey<String>(
+                  'settings-group-diagnostics-surface',
+                ),
                 title: '诊断',
                 children: <Widget>[
                   _SettingsInfoRow(
@@ -389,10 +401,12 @@ class _SettingsHeader extends StatelessWidget {
 class _SettingsGroup extends StatelessWidget {
   const _SettingsGroup({
     super.key,
+    required this.surfaceKey,
     required this.title,
     required this.children,
   });
 
+  final Key surfaceKey;
   final String title;
   final List<Widget> children;
 
@@ -413,7 +427,22 @@ class _SettingsGroup extends StatelessWidget {
             ),
           ),
         ),
-        ..._withHairlines(children),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(PlayerViewTokens.groupRadius),
+          child: DecoratedBox(
+            key: surfaceKey,
+            decoration: const BoxDecoration(
+              color: PlayerViewTokens.neutralGroupSurface,
+              borderRadius: BorderRadius.all(
+                Radius.circular(PlayerViewTokens.groupRadius),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: _withHairlines(children),
+            ),
+          ),
+        ),
       ],
     );
   }

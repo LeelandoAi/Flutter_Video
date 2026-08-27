@@ -4,6 +4,12 @@ import '../../models.dart';
 
 enum PlayerViewMode { compact, expanded, wide }
 
+abstract final class PlayerViewTokens {
+  static const double desktopEmbeddedRadius = 18;
+  static const double groupRadius = 12;
+  static const Color neutralGroupSurface = Color(0x14FFFFFF);
+}
+
 class PlayerViewMetrics {
   const PlayerViewMetrics({
     required this.mode,
@@ -49,11 +55,11 @@ class PlayerViewMetrics {
 
     switch (mode) {
       case PlayerViewMode.compact:
-        return const PlayerViewMetrics(
-          mode: PlayerViewMode.compact,
+        return PlayerViewMetrics(
+          mode: mode,
           leftPadding: 7,
           rightPadding: 7,
-          bottomPadding: 1,
+          bottomPadding: desktop ? 2 : 1,
           progressHeight: 2,
           iconSize: 17,
           primaryIconSize: 23,

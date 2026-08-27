@@ -394,7 +394,92 @@ void main() {
     );
   });
 
-  test('全屏命令与切核事务串行且不会被旧快照覆盖', () async {
+  test('较新的 open 在旧 open 完成前使旧适配器提交失效', () async {
+    // Catches a superseded adapter remaining the visible surface after its
+    // delayed open has already changed the backend source.
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'superseded-open',
+      displayName: '打开抢占测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _OpenSupersessionTracker tracker = _OpenSupersessionTracker();
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(
+          descriptor: descriptor,
+          create: () => tracker.createAdapter(descriptor),
+        ),
+      ],
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+    final VideoSource first = VideoSource.network('https://example.com/a.mp4');
+    final VideoSource stale = VideoSource.network('https://example.com/b.mp4');
+    final VideoSource latest = VideoSource.network('https://example.com/c.mp4');
+
+    await player.open(first);
+    final Future<void> staleOpen = player.open(stale);
+    await tracker.staleStarted.future;
+    final Future<void> latestOpen = player.open(latest);
+
+    tracker.releaseStale();
+    await staleOpen;
+    await tracker.latestStarted.future;
+    final int adapterCountBeforeLatestCompletion = tracker.adapters.length;
+    final bool staleAdapterDisposedBeforeLatestCompletion =
+        tracker.adapters.first.disposed;
+    final VideoKernelAdapter? surfaceBeforeLatestCompletion =
+        player.activeAdapter;
+    tracker.releaseLatest();
+    await latestOpen;
+
+    expect(adapterCountBeforeLatestCompletion, 2);
+    expect(staleAdapterDisposedBeforeLatestCompletion, isTrue);
+    expect(surfaceBeforeLatestCompletion, same(tracker.adapters.last));
+    expect(player.value.source?.uri, latest.uri);
+    expect(tracker.adapters.last.committedSource, latest.uri);
+  });
+
+  test('延迟 open 期间退出全屏立即完成且旧状态不会写回', () async {
+    // Catches fullscreen exit waiting behind a slow adapter open.
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'blocked-fullscreen-open',
+      displayName: '阻塞全屏打开测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _BlockedOpenVideoKernelAdapter adapter =
+        _BlockedOpenVideoKernelAdapter(descriptor);
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(descriptor: descriptor, create: () => adapter),
+      ],
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.enterFullscreen(syncPlatform: false);
+    final Future<void> opening = player.open(source());
+    await adapter.openStarted.future;
+    var exitCompleted = false;
+    final Future<void> exitFuture = player
+        .exitFullscreen(syncPlatform: false)
+        .whenComplete(() => exitCompleted = true);
+    await Future<void>.delayed(Duration.zero);
+    final bool completedBeforeOpen = exitCompleted;
+    final bool fullscreenBeforeOpen = player.value.fullscreen;
+
+    adapter.releaseOpen();
+    await opening;
+    await exitFuture;
+
+    expect(completedBeforeOpen, isTrue);
+    expect(fullscreenBeforeOpen, isFalse);
+    expect(player.value.fullscreen, isFalse);
+  });
+
+  test('延迟切核期间退出全屏立即完成且旧快照不会写回', () async {
     const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
       id: 'blocked-fullscreen-switch',
       displayName: '阻塞全屏切换测试内核',
@@ -426,12 +511,15 @@ void main() {
         .exitFullscreen(syncPlatform: false)
         .whenComplete(() => exitCompleted = true);
     await Future<void>.delayed(Duration.zero);
-    expect(exitCompleted, isFalse);
+    final bool completedBeforeSwitch = exitCompleted;
+    final bool fullscreenBeforeSwitch = player.value.fullscreen;
 
     adapter.releaseSnapshot();
     await switchFuture;
     await exitFuture;
 
+    expect(completedBeforeSwitch, isTrue);
+    expect(fullscreenBeforeSwitch, isFalse);
     expect(player.value.activeKernelId, 'second');
     expect(player.value.fullscreen, isFalse);
   });
@@ -986,6 +1074,81 @@ class _DelayedPlayVideoKernelAdapter extends FakeVideoKernelAdapter {
     playStarted.complete();
     await _playRelease.future;
     return state.copyWith(lifecycle: UnifiedVideoLifecycle.playing);
+  }
+}
+
+class _BlockedOpenVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _BlockedOpenVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  final Completer<void> openStarted = Completer<void>();
+  final Completer<void> _openRelease = Completer<void>();
+
+  void releaseOpen() => _openRelease.complete();
+
+  @override
+  Future<UnifiedVideoState> open(
+    VideoSource source,
+    UnifiedVideoState state,
+  ) async {
+    openStarted.complete();
+    await _openRelease.future;
+    return super.open(source, state);
+  }
+}
+
+class _OpenSupersessionTracker {
+  final Completer<void> staleStarted = Completer<void>();
+  final Completer<void> latestStarted = Completer<void>();
+  final Completer<void> _staleRelease = Completer<void>();
+  final Completer<void> _latestRelease = Completer<void>();
+  final List<_SupersessionVideoKernelAdapter> adapters =
+      <_SupersessionVideoKernelAdapter>[];
+
+  _SupersessionVideoKernelAdapter createAdapter(
+    VideoKernelDescriptor descriptor,
+  ) {
+    final _SupersessionVideoKernelAdapter adapter =
+        _SupersessionVideoKernelAdapter(descriptor, this);
+    adapters.add(adapter);
+    return adapter;
+  }
+
+  void releaseStale() => _staleRelease.complete();
+
+  void releaseLatest() => _latestRelease.complete();
+}
+
+class _SupersessionVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _SupersessionVideoKernelAdapter(
+    VideoKernelDescriptor descriptor,
+    this.tracker,
+  ) : super(descriptor: descriptor);
+
+  final _OpenSupersessionTracker tracker;
+  Uri? committedSource;
+  bool disposed = false;
+
+  @override
+  Future<UnifiedVideoState> open(
+    VideoSource source,
+    UnifiedVideoState state,
+  ) async {
+    if (source.uri.path.endsWith('/b.mp4')) {
+      tracker.staleStarted.complete();
+      await tracker._staleRelease.future;
+    } else if (source.uri.path.endsWith('/c.mp4')) {
+      tracker.latestStarted.complete();
+      await tracker._latestRelease.future;
+    }
+    committedSource = source.uri;
+    return super.open(source, state);
+  }
+
+  @override
+  Future<void> dispose() async {
+    disposed = true;
+    await super.dispose();
   }
 }
 

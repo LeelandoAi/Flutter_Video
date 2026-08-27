@@ -93,8 +93,10 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
   VideoKernelRuntimeLease? _runtimeLease;
   Timer? _stateRefreshTimer;
   Future<void> _operationTail = Future<void>.value();
+  Future<void> _fullscreenOperationTail = Future<void>.value();
   Future<void> _cleanupFuture = Future<void>.value();
   int _stateGeneration = 0;
+  int _openRequestGeneration = 0;
   bool _operationRunning = false;
   bool _refreshingState = false;
   bool _disposed = false;
@@ -139,16 +141,10 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
         !UnifiedVideoFullscreenPlatform.isFullscreenOwner(this)) {
       return;
     }
-    unawaited(
-      _enqueue<void>(() async {
-        if (_disposed ||
-            fullscreen == value.fullscreen ||
-            !UnifiedVideoFullscreenPlatform.isFullscreenOwner(this)) {
-          return;
-        }
-        value = value.copyWith(fullscreen: fullscreen, clearError: true);
-      }),
-    );
+    if (fullscreen == value.fullscreen) {
+      return;
+    }
+    value = value.copyWith(fullscreen: fullscreen, clearError: true);
   }
 
   Future<T> _enqueue<T>(Future<T> Function() operation) {
@@ -168,12 +164,40 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
   }
 
   Future<void> open(VideoSource source, {KernelPreference? preference}) {
-    return _enqueue<void>(() => _open(source, preference: preference));
+    final int requestGeneration = ++_openRequestGeneration;
+    return _enqueue<void>(
+      () => _open(
+        source,
+        preference: preference,
+        requestGeneration: requestGeneration,
+      ),
+    );
   }
 
-  Future<void> _open(VideoSource source, {KernelPreference? preference}) async {
+  @internal
+  Future<void> cancelPendingOpen({VideoSource? restoreSource}) {
+    final int requestGeneration = ++_openRequestGeneration;
+    if (restoreSource != null) {
+      return _enqueue<void>(
+        () => _open(restoreSource, requestGeneration: requestGeneration),
+      );
+    }
+    return _enqueue<void>(() => _clearCancelledOpen(requestGeneration));
+  }
+
+  Future<void> _open(
+    VideoSource source, {
+    KernelPreference? preference,
+    required int requestGeneration,
+  }) async {
     _ensureActive();
     final int generation = _stateGeneration;
+    if (!_canCommitAsyncState(
+      generation,
+      openRequestGeneration: requestGeneration,
+    )) {
+      return;
+    }
     this.preference = preference ?? this.preference;
     value = value.copyWith(
       lifecycle: UnifiedVideoLifecycle.opening,
@@ -201,6 +225,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
             source,
             fallbackHistory: skippedKernelIds,
             generation: generation,
+            openRequestGeneration: requestGeneration,
           );
           if (!opened) {
             return;
@@ -208,7 +233,10 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
           _startStateRefresh();
           return;
         } catch (error) {
-          if (!_canCommitAsyncState(generation)) {
+          if (!_canCommitAsyncState(
+            generation,
+            openRequestGeneration: requestGeneration,
+          )) {
             return;
           }
           if (error is KernelRuntimeConflictException &&
@@ -253,6 +281,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
           clearActiveKernelId: true,
         ),
         generation,
+        openRequestGeneration: requestGeneration,
       );
       rethrow;
     } on UnsupportedKernelException catch (error) {
@@ -271,7 +300,10 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
             );
       if (runtimeFailures.isNotEmpty) {
         await _disposeActiveAdapter();
-        if (!_canCommitAsyncState(generation)) {
+        if (!_canCommitAsyncState(
+          generation,
+          openRequestGeneration: requestGeneration,
+        )) {
           return;
         }
       }
@@ -284,10 +316,14 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
           clearActiveKernelId: true,
         ),
         generation,
+        openRequestGeneration: requestGeneration,
       );
       rethrow;
     } catch (error) {
-      if (!_canCommitAsyncState(generation)) {
+      if (!_canCommitAsyncState(
+        generation,
+        openRequestGeneration: requestGeneration,
+      )) {
         return;
       }
       _commitAsyncState(
@@ -300,9 +336,45 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
           ),
         ),
         generation,
+        openRequestGeneration: requestGeneration,
       );
       rethrow;
     }
+  }
+
+  Future<void> _clearCancelledOpen(int requestGeneration) async {
+    _ensureActive();
+    final int generation = _stateGeneration;
+    if (!_canCommitAsyncState(
+      generation,
+      openRequestGeneration: requestGeneration,
+    )) {
+      return;
+    }
+    await _disposeActiveAdapter();
+    if (!_canCommitAsyncState(
+      generation,
+      openRequestGeneration: requestGeneration,
+    )) {
+      return;
+    }
+    _stopStateRefresh();
+    _commitAsyncState(
+      value.copyWith(
+        lifecycle: UnifiedVideoLifecycle.idle,
+        position: Duration.zero,
+        duration: Duration.zero,
+        buffered: const <BufferedRange>[],
+        tracks: const <VideoTrack>[],
+        fallbackHistory: const <String>[],
+        clearSource: true,
+        clearActiveKernelId: true,
+        clearTargetKernelId: true,
+        clearError: true,
+      ),
+      generation,
+      openRequestGeneration: requestGeneration,
+    );
   }
 
   Future<void> play() {
@@ -381,7 +453,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
   }
 
   Future<void> enterFullscreen({bool syncPlatform = true}) {
-    return _enqueue<void>(() => _enterFullscreen(syncPlatform: syncPlatform));
+    return _enterFullscreen(syncPlatform: syncPlatform);
   }
 
   Future<void> _enterFullscreen({required bool syncPlatform}) async {
@@ -389,37 +461,58 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     claimFullscreenOwnership();
     value = value.copyWith(fullscreen: true, clearError: true);
     if (syncPlatform) {
-      await UnifiedVideoFullscreenPlatform.enter(_platform);
+      await _enqueueFullscreenPlatform(
+        () => UnifiedVideoFullscreenPlatform.enter(_platform),
+      );
     }
   }
 
   Future<void> exitFullscreen({bool syncPlatform = true}) {
-    return _enqueue<void>(() => _exitFullscreen(syncPlatform: syncPlatform));
+    return _exitFullscreen(syncPlatform: syncPlatform);
   }
 
   Future<void> _exitFullscreen({required bool syncPlatform}) async {
     _ensureActive();
     value = value.copyWith(fullscreen: false, clearError: true);
     if (syncPlatform) {
-      await UnifiedVideoFullscreenPlatform.exit(_platform);
+      await _enqueueFullscreenPlatform(
+        () => UnifiedVideoFullscreenPlatform.exit(_platform),
+      );
     }
   }
 
   Future<void> syncFullscreenPlatform() {
-    return _enqueue<void>(_syncFullscreenPlatform);
+    return _syncFullscreenPlatform();
   }
 
   Future<void> _syncFullscreenPlatform() async {
     _ensureActive();
     if (value.fullscreen) {
-      await UnifiedVideoFullscreenPlatform.enter(_platform);
+      await _enqueueFullscreenPlatform(
+        () => UnifiedVideoFullscreenPlatform.enter(_platform),
+      );
     } else {
-      await UnifiedVideoFullscreenPlatform.exit(_platform);
+      await _enqueueFullscreenPlatform(
+        () => UnifiedVideoFullscreenPlatform.exit(_platform),
+      );
     }
   }
 
+  Future<void> _enqueueFullscreenPlatform(Future<void> Function() operation) {
+    final Completer<void> completer = Completer<void>();
+    _fullscreenOperationTail = _fullscreenOperationTail.then((_) async {
+      try {
+        await operation();
+        completer.complete();
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
   Future<void> switchSource(VideoSource source) {
-    return _enqueue<void>(() => _open(source));
+    return open(source);
   }
 
   Future<void> switchKernel(String kernelId) {
@@ -556,6 +649,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     VideoSource source, {
     required List<String> fallbackHistory,
     required int generation,
+    required int openRequestGeneration,
   }) async {
     final VideoKernelAdapter? activeAdapter = _adapter;
     if (activeAdapter?.descriptor.id == kernel.descriptor.id) {
@@ -566,15 +660,28 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
         ),
         generation,
         adapter: activeAdapter,
+        openRequestGeneration: openRequestGeneration,
       )) {
         return false;
       }
       final UnifiedVideoState next = await activeAdapter.open(source, value);
-      return _commitAsyncState(next, generation, adapter: activeAdapter);
+      if (!_commitAsyncState(
+        next,
+        generation,
+        adapter: activeAdapter,
+        openRequestGeneration: openRequestGeneration,
+      )) {
+        await _discardAdapterAfterCancellation(activeAdapter, _runtimeLease);
+        return false;
+      }
+      return true;
     }
 
     await _disposeActiveAdapter();
-    if (!_canCommitAsyncState(generation)) {
+    if (!_canCommitAsyncState(
+      generation,
+      openRequestGeneration: openRequestGeneration,
+    )) {
       return false;
     }
     return _createAndOpenKernel(
@@ -582,6 +689,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
       source,
       fallbackHistory: fallbackHistory,
       generation: generation,
+      openRequestGeneration: openRequestGeneration,
     );
   }
 
@@ -610,17 +718,24 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     VideoSource source, {
     required List<String> fallbackHistory,
     required int generation,
+    int? openRequestGeneration,
   }) async {
     final VideoKernelAdapter adapter = kernel.create();
     VideoKernelRuntimeLease? lease;
     try {
       lease = await _runtimeCoordinator.acquire(adapter);
-      if (!_canCommitAsyncState(generation)) {
+      if (!_canCommitAsyncState(
+        generation,
+        openRequestGeneration: openRequestGeneration,
+      )) {
         await _discardAdapterAfterCancellation(adapter, lease);
         return false;
       }
       await adapter.initialize();
-      if (!_canCommitAsyncState(generation)) {
+      if (!_canCommitAsyncState(
+        generation,
+        openRequestGeneration: openRequestGeneration,
+      )) {
         await _discardAdapterAfterCancellation(adapter, lease);
         return false;
       }
@@ -633,12 +748,18 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
         ),
         generation,
         adapter: adapter,
+        openRequestGeneration: openRequestGeneration,
       )) {
         await _discardAdapterAfterCancellation(adapter, lease);
         return false;
       }
       final UnifiedVideoState next = await adapter.open(source, value);
-      if (!_commitAsyncState(next, generation, adapter: adapter)) {
+      if (!_commitAsyncState(
+        next,
+        generation,
+        adapter: adapter,
+        openRequestGeneration: openRequestGeneration,
+      )) {
         await _discardAdapterAfterCancellation(adapter, lease);
         return false;
       }
@@ -647,7 +768,10 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
       try {
         await _discardAdapter(adapter, lease);
       } catch (cleanupError) {
-        if (!_canCommitAsyncState(generation)) {
+        if (!_canCommitAsyncState(
+          generation,
+          openRequestGeneration: openRequestGeneration,
+        )) {
           return false;
         }
         if (error is KernelRuntimeConflictException) {
@@ -663,7 +787,10 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
           cleanupError: cleanupError,
         );
       }
-      if (!_canCommitAsyncState(generation)) {
+      if (!_canCommitAsyncState(
+        generation,
+        openRequestGeneration: openRequestGeneration,
+      )) {
         return false;
       }
       Error.throwWithStackTrace(error, stackTrace);
@@ -914,10 +1041,16 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     }
   }
 
-  bool _canCommitAsyncState(int generation, {VideoKernelAdapter? adapter}) {
+  bool _canCommitAsyncState(
+    int generation, {
+    VideoKernelAdapter? adapter,
+    int? openRequestGeneration,
+  }) {
     return !_disposed &&
         !value.isDisposed &&
         (adapter == null || identical(_adapter, adapter)) &&
+        (openRequestGeneration == null ||
+            _openRequestGeneration == openRequestGeneration) &&
         _stateGeneration == generation;
   }
 
@@ -925,11 +1058,18 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     UnifiedVideoState next,
     int generation, {
     VideoKernelAdapter? adapter,
+    int? openRequestGeneration,
   }) {
-    if (!_canCommitAsyncState(generation, adapter: adapter)) {
+    if (!_canCommitAsyncState(
+      generation,
+      adapter: adapter,
+      openRequestGeneration: openRequestGeneration,
+    )) {
       return false;
     }
-    value = next;
+    value = next.fullscreen == value.fullscreen
+        ? next
+        : next.copyWith(fullscreen: value.fullscreen);
     return true;
   }
 

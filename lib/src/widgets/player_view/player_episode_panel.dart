@@ -77,32 +77,46 @@ class PlayerEpisodePanel extends StatelessWidget {
               ),
             ),
             Flexible(
-              child: Material(
-                type: MaterialType.transparency,
-                child: ListView.separated(
-                  padding: EdgeInsets.zero,
-                  shrinkWrap: true,
-                  itemCount: episodes.length,
-                  separatorBuilder: (BuildContext context, int index) {
-                    return Divider(
-                      height: 1,
-                      thickness: 1,
-                      color: Colors.white.withValues(alpha: 0.10),
-                    );
-                  },
-                  itemBuilder: (BuildContext context, int index) {
-                    final VideoEpisode episode = episodes[index];
-                    return _EpisodeRow(
-                      episode: episode,
-                      selected: episode.id == activeEpisodeId,
-                      opening: episode.id == openingEpisodeId,
-                      anotherEpisodeOpening:
-                          openingEpisodeId != null &&
-                          episode.id != openingEpisodeId,
-                      onSelected: onSelected,
-                      onClose: onClose,
-                    );
-                  },
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(
+                  PlayerViewTokens.groupRadius,
+                ),
+                child: DecoratedBox(
+                  key: const ValueKey<String>('episode-list-group-surface'),
+                  decoration: const BoxDecoration(
+                    color: PlayerViewTokens.neutralGroupSurface,
+                    borderRadius: BorderRadius.all(
+                      Radius.circular(PlayerViewTokens.groupRadius),
+                    ),
+                  ),
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: ListView.separated(
+                      padding: EdgeInsets.zero,
+                      shrinkWrap: true,
+                      itemCount: episodes.length,
+                      separatorBuilder: (BuildContext context, int index) {
+                        return Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: Colors.white.withValues(alpha: 0.10),
+                        );
+                      },
+                      itemBuilder: (BuildContext context, int index) {
+                        final VideoEpisode episode = episodes[index];
+                        return _EpisodeRow(
+                          episode: episode,
+                          selected: episode.id == activeEpisodeId,
+                          opening: episode.id == openingEpisodeId,
+                          anotherEpisodeOpening:
+                              openingEpisodeId != null &&
+                              episode.id != openingEpisodeId,
+                          onSelected: onSelected,
+                          onClose: onClose,
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),

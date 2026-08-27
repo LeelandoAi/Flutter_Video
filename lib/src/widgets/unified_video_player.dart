@@ -51,6 +51,7 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
   String? _openingEpisodeId;
   int _episodeOperationGeneration = 0;
   VideoSource? _openingEpisodeSource;
+  VideoSource? _openingEpisodePreviousSource;
   VideoSource? _quarantinedInternalSource;
   bool _quarantinedInternalOperationPending = false;
   int? _quarantinedInternalOperationGeneration;
@@ -75,13 +76,11 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     super.didUpdateWidget(oldWidget);
     _validateEpisodes(widget.episodes);
     if (oldWidget.controller != widget.controller) {
+      _invalidateOpeningEpisode(oldWidget.controller);
       oldWidget.controller.removeListener(_handleControllerFullscreenChanged);
       oldWidget.controller.releaseFullscreenOwnership();
       widget.controller.claimFullscreenOwnershipIfUnclaimed();
       widget.controller.addListener(_handleControllerFullscreenChanged);
-      _episodeOperationGeneration += 1;
-      _openingEpisodeId = null;
-      _openingEpisodeSource = null;
       _quarantinedInternalSource = null;
       _quarantinedInternalOperationPending = false;
       _quarantinedInternalOperationGeneration = null;
@@ -90,13 +89,13 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       _syncActiveEpisodeFromSource();
     } else if (oldWidget.episodes != widget.episodes) {
       if (_openingEpisodeId != null) {
-        final int invalidatedGeneration = _episodeOperationGeneration;
-        _episodeOperationGeneration += 1;
-        _quarantinedInternalSource = _openingEpisodeSource;
-        _quarantinedInternalOperationPending = true;
-        _quarantinedInternalOperationGeneration = invalidatedGeneration;
-        _openingEpisodeId = null;
-        _openingEpisodeSource = null;
+        final VideoEpisode? currentTarget = _episodeWithId(_openingEpisodeId);
+        if (currentTarget == null ||
+            !_sameSource(currentTarget.source, _openingEpisodeSource)) {
+          _invalidateOpeningEpisode(widget.controller);
+        } else {
+          _openingEpisodeSource = currentTarget.source;
+        }
       }
       if (_episodeWithId(_activeEpisodeId) == null) {
         _syncActiveEpisodeFromSource();
@@ -106,6 +105,7 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
 
   @override
   void dispose() {
+    _invalidateOpeningEpisode(widget.controller);
     widget.controller.removeListener(_handleControllerFullscreenChanged);
     widget.controller.releaseFullscreenOwnership();
     super.dispose();
@@ -148,6 +148,7 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       activeEpisodeId: _activeEpisodeId,
       openingEpisodeId: _openingEpisodeId,
       onEpisodeSelected: _openEpisode,
+      onRetry: _retryCurrentSource,
       onPrevious: _previousEpisodeAction(),
       onNext: _nextEpisodeAction(),
       onSwitchContent: widget.onSwitchContent,
@@ -306,6 +307,27 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     return first?.type == second?.type && first?.uri == second?.uri;
   }
 
+  void _invalidateOpeningEpisode(UnifiedVideoController controller) {
+    if (_openingEpisodeId == null) {
+      return;
+    }
+    final int invalidatedGeneration = _episodeOperationGeneration;
+    final VideoSource? invalidatedSource = _openingEpisodeSource;
+    final VideoSource? restoreSource = _openingEpisodePreviousSource;
+    _episodeOperationGeneration += 1;
+    _quarantinedInternalSource = invalidatedSource;
+    _quarantinedInternalOperationPending = true;
+    _quarantinedInternalOperationGeneration = invalidatedGeneration;
+    _openingEpisodeId = null;
+    _openingEpisodeSource = null;
+    _openingEpisodePreviousSource = null;
+    unawaited(
+      controller
+          .cancelPendingOpen(restoreSource: restoreSource)
+          .catchError((Object _) {}),
+    );
+  }
+
   void _syncActiveEpisodeFromSource() {
     final String? matchedId = _episodeMatchingSource(
       widget.controller.value.source,
@@ -357,9 +379,11 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     }
     final UnifiedVideoController openingController = widget.controller;
     final int openingGeneration = ++_episodeOperationGeneration;
+    late final VideoEpisode episodeToNotify;
     setState(() {
       _openingEpisodeId = episode.id;
       _openingEpisodeSource = episode.source;
+      _openingEpisodePreviousSource = _lastObservedSource;
     });
     try {
       await openingController.open(episode.source);
@@ -368,15 +392,22 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
           _episodeOperationGeneration != openingGeneration) {
         return false;
       }
+      final VideoEpisode? committedEpisode = _episodeWithId(episode.id);
+      if (committedEpisode == null ||
+          !_sameSource(committedEpisode.source, episode.source)) {
+        return false;
+      }
       setState(() {
-        _activeEpisodeId = episode.id;
+        _activeEpisodeId = committedEpisode.id;
+        _openingEpisodeId = null;
+        _openingEpisodeSource = null;
+        _openingEpisodePreviousSource = null;
         _lastObservedSource = openingController.value.source;
         _quarantinedInternalSource = null;
         _quarantinedInternalOperationPending = false;
         _quarantinedInternalOperationGeneration = null;
       });
-      widget.onEpisodeChanged?.call(episode);
-      return true;
+      episodeToNotify = committedEpisode;
     } catch (_) {
       if (mounted &&
           widget.controller == openingController &&
@@ -400,8 +431,47 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
         setState(() {
           _openingEpisodeId = null;
           _openingEpisodeSource = null;
+          _openingEpisodePreviousSource = null;
         });
       }
+    }
+    _notifyEpisodeChanged(episodeToNotify);
+    return true;
+  }
+
+  void _notifyEpisodeChanged(VideoEpisode episode) {
+    final ValueChanged<VideoEpisode>? callback = widget.onEpisodeChanged;
+    if (callback == null) {
+      return;
+    }
+    try {
+      callback(episode);
+    } catch (error, stackTrace) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'leelando_video',
+          context: ErrorDescription('while notifying onEpisodeChanged'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _retryCurrentSource() async {
+    final VideoSource? source = widget.controller.value.source;
+    if (source == null) {
+      return;
+    }
+    final VideoEpisode? episode = _episodeMatchingSource(source);
+    try {
+      if (episode != null && _sameSource(source, _quarantinedInternalSource)) {
+        await _openEpisode(episode);
+      } else {
+        await widget.controller.open(source);
+      }
+    } catch (_) {
+      // The controller exposes retry failures through UnifiedVideoState.
     }
   }
 }
@@ -414,6 +484,7 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
     required this.activeEpisodeId,
     required this.openingEpisodeId,
     required this.onEpisodeSelected,
+    required this.onRetry,
     required this.onPrevious,
     required this.onNext,
     required this.onSwitchContent,
@@ -426,6 +497,7 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
   final String? activeEpisodeId;
   final String? openingEpisodeId;
   final Future<bool> Function(VideoEpisode episode) onEpisodeSelected;
+  final Future<void> Function() onRetry;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
   final VoidCallback? onSwitchContent;
@@ -533,7 +605,29 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
   }
 
   void _toggleControls() {
+    widget.controller.claimFullscreenOwnership();
+    if (_usesDesktopInput) {
+      _showControls();
+      return;
+    }
+    final UnifiedVideoLifecycle lifecycle = widget.controller.value.lifecycle;
+    final bool canHideByTap =
+        lifecycle == UnifiedVideoLifecycle.ready ||
+        lifecycle == UnifiedVideoLifecycle.playing ||
+        lifecycle == UnifiedVideoLifecycle.buffering;
+    if (mounted && _controlsVisible && canHideByTap) {
+      _hideControlsTimer?.cancel();
+      setState(() => _controlsVisible = false);
+      return;
+    }
     _showControls();
+  }
+
+  bool get _usesDesktopInput {
+    final UnifiedVideoPlatform platform = widget.controller.platform;
+    return platform == UnifiedVideoPlatform.windows ||
+        platform == UnifiedVideoPlatform.macos ||
+        platform == UnifiedVideoPlatform.linux;
   }
 
   void _showControls() {
@@ -695,11 +789,11 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
       return false;
     }
     switch (state.lifecycle) {
-      case UnifiedVideoLifecycle.ready:
       case UnifiedVideoLifecycle.playing:
       case UnifiedVideoLifecycle.buffering:
         return true;
       case UnifiedVideoLifecycle.idle:
+      case UnifiedVideoLifecycle.ready:
       case UnifiedVideoLifecycle.opening:
       case UnifiedVideoLifecycle.switchingKernel:
       case UnifiedVideoLifecycle.paused:
@@ -708,6 +802,76 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
       case UnifiedVideoLifecycle.disposed:
         return false;
     }
+  }
+
+  VideoEpisode? _activeEpisodeForTitle() {
+    final String? activeId = widget.activeEpisodeId;
+    if (activeId == null) {
+      return null;
+    }
+    for (final VideoEpisode episode in widget.episodes) {
+      if (episode.id == activeId) {
+        return episode;
+      }
+    }
+    return null;
+  }
+
+  Widget _buildContextEscape(
+    PlayerViewMetrics metrics, {
+    required bool closeOnly,
+  }) {
+    final String label;
+    if (!closeOnly) {
+      label = '退出全屏';
+    } else {
+      label = switch (_contextOverlay) {
+        _PlayerContextOverlay.episode => '关闭选集',
+        _PlayerContextOverlay.speed => '关闭播放速度',
+        _PlayerContextOverlay.settings => '关闭播放设置',
+        null => '关闭浮层',
+      };
+    }
+    return Positioned(
+      top: MediaQuery.viewPaddingOf(context).top + 8,
+      left: metrics.leftPadding,
+      child: SizedBox.square(
+        key: const ValueKey<String>('context-overlay-escape'),
+        dimension: 44,
+        child: Semantics(
+          button: true,
+          label: label,
+          child: GestureDetector(
+            key: closeOnly
+                ? const ValueKey<String>('context-overlay-close')
+                : const ValueKey<String>('fullscreen'),
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              _closeContextOverlay();
+              if (!closeOnly) {
+                _ignorePlaybackError(widget.onFullscreenPressed);
+              }
+            },
+            child: ExcludeSemantics(
+              child: Center(
+                child: Icon(
+                  closeOnly ? Icons.close_rounded : Icons.fullscreen_exit,
+                  color: Colors.white,
+                  size: metrics.iconSize,
+                  shadows: const <Shadow>[
+                    Shadow(
+                      color: Color(0xCC000000),
+                      offset: Offset(0, 2),
+                      blurRadius: 6,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -727,10 +891,14 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
               width: constraints.maxWidth,
               viewPadding: MediaQuery.viewPaddingOf(context),
             );
-            final bool desktopInput =
-                widget.controller.platform == UnifiedVideoPlatform.windows ||
-                widget.controller.platform == UnifiedVideoPlatform.macos ||
-                widget.controller.platform == UnifiedVideoPlatform.linux;
+            final bool desktopInput = _usesDesktopInput;
+            final bool desktopEmbedded =
+                !state.fullscreen &&
+                (widget.controller.platform == UnifiedVideoPlatform.windows ||
+                    widget.controller.platform == UnifiedVideoPlatform.macos);
+            final bool contextOverlayVisible = _contextOverlay != null;
+            final bool showFullscreenEscape =
+                state.fullscreen && (contextOverlayVisible || !controlsShown);
             return MouseRegion(
               key: const ValueKey<String>('player-frame'),
               opaque: true,
@@ -746,193 +914,227 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
                     : null,
                 child: Listener(
                   behavior: HitTestBehavior.opaque,
-                  onPointerDown: (_) => _showControls(),
-                  onPointerMove: (_) => _showControls(),
-                  onPointerSignal: (_) => _showControls(),
-                  child: DecoratedBox(
-                    decoration: const BoxDecoration(color: Colors.black),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: <Widget>[
-                        Transform.rotate(
-                          angle: _quarterTurns * math.pi / 2,
-                          child: Transform(
-                            alignment: Alignment.center,
-                            transform: Matrix4.diagonal3Values(
-                              _mirrored ? -1.0 : 1.0,
-                              1,
-                              1,
+                  onPointerDown: desktopInput ? (_) => _showControls() : null,
+                  onPointerMove: desktopInput ? (_) => _showControls() : null,
+                  onPointerSignal: desktopInput ? (_) => _showControls() : null,
+                  child: ClipRRect(
+                    key: const ValueKey<String>('player-frame-clip'),
+                    borderRadius: BorderRadius.circular(
+                      desktopEmbedded
+                          ? PlayerViewTokens.desktopEmbeddedRadius
+                          : 0,
+                    ),
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(color: Colors.black),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: <Widget>[
+                          ExcludeSemantics(
+                            excluding: contextOverlayVisible,
+                            child: Transform.rotate(
+                              angle: _quarterTurns * math.pi / 2,
+                              child: Transform(
+                                alignment: Alignment.center,
+                                transform: Matrix4.diagonal3Values(
+                                  _mirrored ? -1.0 : 1.0,
+                                  1,
+                                  1,
+                                ),
+                                child: _VideoSurface(
+                                  controller: widget.controller,
+                                  state: state,
+                                ),
+                              ),
                             ),
-                            child: _VideoSurface(
+                          ),
+                          if (_nightModeEnabled)
+                            IgnorePointer(
+                              child: ColoredBox(
+                                key: const ValueKey<String>('night-mode-layer'),
+                                color: Colors.black.withValues(alpha: 0.22),
+                              ),
+                            ),
+                          Positioned.fill(
+                            child: ExcludeSemantics(
+                              excluding: contextOverlayVisible,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: _toggleControls,
+                              ),
+                            ),
+                          ),
+                          ExcludeSemantics(
+                            excluding: contextOverlayVisible,
+                            child: PlayerStateOverlay(
                               controller: widget.controller,
                               state: state,
+                              onRetry: widget.onRetry,
+                              onResume: () {
+                                _showControls();
+                                _ignorePlaybackError(
+                                  () => _playOrReplay(widget.controller, state),
+                                );
+                              },
+                              onReplay: () {
+                                _showControls();
+                                _ignorePlaybackError(
+                                  () => _playOrReplay(widget.controller, state),
+                                );
+                              },
+                              onNext: widget.onNext,
                             ),
                           ),
-                        ),
-                        if (_nightModeEnabled)
-                          IgnorePointer(
-                            child: ColoredBox(
-                              key: const ValueKey<String>('night-mode-layer'),
-                              color: Colors.black.withValues(alpha: 0.22),
-                            ),
-                          ),
-                        Positioned.fill(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: _toggleControls,
-                          ),
-                        ),
-                        PlayerStateOverlay(
-                          controller: widget.controller,
-                          state: state,
-                          onRetry: _retryCurrentSource,
-                          onResume: () {
-                            _showControls();
-                            _ignorePlaybackError(
-                              () => _playOrReplay(widget.controller, state),
-                            );
-                          },
-                          onReplay: () {
-                            _showControls();
-                            _ignorePlaybackError(
-                              () => _playOrReplay(widget.controller, state),
-                            );
-                          },
-                          onNext: widget.onNext,
-                        ),
-                        if (state.lastKernelSwitchError != null &&
-                            state.lifecycle != UnifiedVideoLifecycle.failed)
-                          Positioned(
-                            left: 20,
-                            right: 20,
-                            top: 18,
-                            child: IgnorePointer(
-                              child: Semantics(
-                                liveRegion: true,
-                                child: DecoratedBox(
-                                  key: const ValueKey<String>(
-                                    'kernel-switch-error-message',
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.72),
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.16,
+                          if (state.lastKernelSwitchError != null &&
+                              state.lifecycle != UnifiedVideoLifecycle.failed)
+                            Positioned(
+                              left: 20,
+                              right: 20,
+                              top: 18,
+                              child: ExcludeSemantics(
+                                excluding: contextOverlayVisible,
+                                child: IgnorePointer(
+                                  child: Semantics(
+                                    liveRegion: true,
+                                    child: DecoratedBox(
+                                      key: const ValueKey<String>(
+                                        'kernel-switch-error-message',
                                       ),
-                                    ),
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 8,
-                                    ),
-                                    child: Text(
-                                      state.lastKernelSwitchError!.message,
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 13,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.72,
+                                        ),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.16,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 8,
+                                        ),
+                                        child: Text(
+                                          state.lastKernelSwitchError!.message,
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 13,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        if (_contextOverlay != null &&
-                            !_contextPanelController.isDismissed)
-                          _buildContextOverlay(metrics, constraints, state),
-                        AnimatedOpacity(
-                          key: const ValueKey<String>(
-                            'player-controls-overlay',
-                          ),
-                          opacity: controlsShown ? 1 : 0,
-                          duration: const Duration(milliseconds: 180),
-                          curve: Curves.easeOut,
-                          child: IgnorePointer(
-                            ignoring: !controlsShown,
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: <Widget>[
-                                if (metrics.mode != PlayerViewMode.compact)
-                                  _PlayerTitleOverlay(
-                                    controller: widget.controller,
-                                    state: state,
-                                    metrics: metrics,
-                                  ),
-                                Positioned.fill(
-                                  child: PlayerControls(
-                                    state: state,
-                                    metrics: metrics,
-                                    hasEpisodes: widget.episodes.isNotEmpty,
-                                    danmakuEnabled: _danmakuEnabled,
-                                    onPrevious: widget.onPrevious,
-                                    onPlayPause: () {
-                                      _showControls();
-                                      if (state.isPlaying) {
-                                        _ignorePlaybackError(
-                                          widget.controller.pause,
-                                        );
-                                      } else {
-                                        _ignorePlaybackError(
-                                          () => _playOrReplay(
-                                            widget.controller,
-                                            state,
-                                          ),
-                                        );
-                                      }
-                                    },
-                                    onNext: widget.onNext,
-                                    onOpenEpisodes: () {
-                                      _showControls();
-                                      _toggleContextOverlay(
-                                        _PlayerContextOverlay.episode,
-                                      );
-                                    },
-                                    onToggleDanmaku: () {
-                                      _showControls();
-                                      setState(
-                                        () =>
-                                            _danmakuEnabled = !_danmakuEnabled,
-                                      );
-                                    },
-                                    onOpenSpeed: () {
-                                      _showControls();
-                                      _toggleContextOverlay(
-                                        _PlayerContextOverlay.speed,
-                                      );
-                                    },
-                                    onOpenMore: () {
-                                      _showControls();
-                                      _toggleContextOverlay(
-                                        _PlayerContextOverlay.settings,
-                                      );
-                                    },
-                                    onToggleFullscreen: () {
-                                      _showControls();
-                                      _closeContextOverlay();
-                                      _ignorePlaybackError(
-                                        widget.onFullscreenPressed,
-                                      );
-                                    },
-                                    onSeekStart: _startScrubbing,
-                                    onSeek: (double value) {
-                                      _showControls();
-                                      _ignorePlaybackError(
-                                        () => widget.controller.seek(
-                                          Duration(milliseconds: value.round()),
-                                        ),
-                                      );
-                                    },
-                                    onSeekEnd: _endScrubbing,
-                                  ),
+                          ExcludeSemantics(
+                            excluding: contextOverlayVisible || !controlsShown,
+                            child: AnimatedOpacity(
+                              key: const ValueKey<String>(
+                                'player-controls-overlay',
+                              ),
+                              opacity: controlsShown ? 1 : 0,
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOut,
+                              child: IgnorePointer(
+                                ignoring:
+                                    !controlsShown || contextOverlayVisible,
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: <Widget>[
+                                    if (metrics.mode != PlayerViewMode.compact)
+                                      _PlayerTitleOverlay(
+                                        controller: widget.controller,
+                                        state: state,
+                                        metrics: metrics,
+                                        activeEpisode: _activeEpisodeForTitle(),
+                                      ),
+                                    Positioned.fill(
+                                      child: PlayerControls(
+                                        state: state,
+                                        metrics: metrics,
+                                        hasEpisodes: widget.episodes.isNotEmpty,
+                                        showFullscreen: !showFullscreenEscape,
+                                        danmakuEnabled: _danmakuEnabled,
+                                        onPrevious: widget.onPrevious,
+                                        onPlayPause: () {
+                                          _showControls();
+                                          if (state.isPlaying) {
+                                            _ignorePlaybackError(
+                                              widget.controller.pause,
+                                            );
+                                          } else {
+                                            _ignorePlaybackError(
+                                              () => _playOrReplay(
+                                                widget.controller,
+                                                state,
+                                              ),
+                                            );
+                                          }
+                                        },
+                                        onNext: widget.onNext,
+                                        onOpenEpisodes: () {
+                                          _showControls();
+                                          _toggleContextOverlay(
+                                            _PlayerContextOverlay.episode,
+                                          );
+                                        },
+                                        onToggleDanmaku: () {
+                                          _showControls();
+                                          setState(
+                                            () => _danmakuEnabled =
+                                                !_danmakuEnabled,
+                                          );
+                                        },
+                                        onOpenSpeed: () {
+                                          _showControls();
+                                          _toggleContextOverlay(
+                                            _PlayerContextOverlay.speed,
+                                          );
+                                        },
+                                        onOpenMore: () {
+                                          _showControls();
+                                          _toggleContextOverlay(
+                                            _PlayerContextOverlay.settings,
+                                          );
+                                        },
+                                        onToggleFullscreen: () {
+                                          _showControls();
+                                          _closeContextOverlay();
+                                          _ignorePlaybackError(
+                                            widget.onFullscreenPressed,
+                                          );
+                                        },
+                                        onSeekStart: _startScrubbing,
+                                        onSeek: (double value) {
+                                          _showControls();
+                                          _ignorePlaybackError(
+                                            () => widget.controller.seek(
+                                              Duration(
+                                                milliseconds: value.round(),
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                        onSeekEnd: _endScrubbing,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                          if (contextOverlayVisible)
+                            _buildContextOverlay(metrics, constraints, state),
+                          if (contextOverlayVisible || showFullscreenEscape)
+                            _buildContextEscape(
+                              metrics,
+                              closeOnly: !state.fullscreen,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1159,17 +1361,6 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
         );
     }
   }
-
-  Future<void> _retryCurrentSource() async {
-    final VideoSource? source = widget.controller.value.source;
-    if (source != null) {
-      try {
-        await widget.controller.open(source);
-      } catch (_) {
-        // 控制器已经把失败原因写入 state，UI 不再把异常泄漏到 runtime。
-      }
-    }
-  }
 }
 
 class _VideoSurface extends StatelessWidget {
@@ -1223,11 +1414,13 @@ class _PlayerTitleOverlay extends StatelessWidget {
     required this.controller,
     required this.state,
     required this.metrics,
+    required this.activeEpisode,
   });
 
   final UnifiedVideoController controller;
   final UnifiedVideoState state;
   final PlayerViewMetrics metrics;
+  final VideoEpisode? activeEpisode;
 
   @override
   Widget build(BuildContext context) {
@@ -1261,7 +1454,7 @@ class _PlayerTitleOverlay extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  _sourceTitle(state),
+                  _sourceTitle(activeEpisode, state),
                   key: const ValueKey<String>('player-title'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1284,7 +1477,7 @@ class _PlayerTitleOverlay extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _sourceSubtitle(controller, state),
+                  _sourceSubtitle(activeEpisode, controller, state),
                   key: const ValueKey<String>('player-subtitle'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1313,22 +1506,41 @@ class _PlayerTitleOverlay extends StatelessWidget {
   }
 }
 
-String _sourceTitle(UnifiedVideoState state) {
-  return state.source?.metadata.title ??
-      state.source?.metadata.episodeTitle ??
+String _sourceTitle(VideoEpisode? episode, UnifiedVideoState state) {
+  return episode?.title ??
+      _nonBlank(state.source?.metadata.title) ??
+      _nonBlank(state.source?.metadata.episodeTitle) ??
       '统一影视播放器';
 }
 
 String _sourceSubtitle(
+  VideoEpisode? episode,
   UnifiedVideoController controller,
   UnifiedVideoState state,
 ) {
+  final String? episodeSubtitle = _nonBlank(episode?.subtitle);
+  if (episodeSubtitle != null) {
+    return episodeSubtitle;
+  }
+  final String? metadataSubtitle = _nonBlank(
+    state.source?.metadata.episodeTitle,
+  );
+  if (metadataSubtitle != null) {
+    return metadataSubtitle;
+  }
   final Object? resolution = state.source?.metadata.extra['resolution'];
   final String kernel = _activeKernelName(controller, state);
   if (resolution is String && resolution.trim().isNotEmpty) {
     return '$resolution / $kernel';
   }
-  return '1280 x 720 / $kernel';
+  return kernel;
+}
+
+String? _nonBlank(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return null;
+  }
+  return value;
 }
 
 String _activeKernelName(
