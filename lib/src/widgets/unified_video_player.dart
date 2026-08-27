@@ -48,13 +48,19 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
   String? _activeEpisodeId;
   String? _openingEpisodeId;
   int _episodeOperationGeneration = 0;
+  VideoSource? _openingEpisodeSource;
+  VideoSource? _quarantinedInternalSource;
+  bool _quarantinedInternalOperationPending = false;
+  int? _quarantinedInternalOperationGeneration;
   VideoSource? _lastObservedSource;
+  UnifiedVideoLifecycle? _lastObservedLifecycle;
 
   @override
   void initState() {
     super.initState();
     _validateEpisodes(widget.episodes);
     _lastObservedSource = widget.controller.value.source;
+    _lastObservedLifecycle = widget.controller.value.lifecycle;
     _activeEpisodeId =
         _episodeWithId(widget.initialEpisodeId)?.id ??
         _episodeMatchingSource(widget.controller.value.source)?.id;
@@ -73,11 +79,26 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       widget.controller.addListener(_handleControllerFullscreenChanged);
       _episodeOperationGeneration += 1;
       _openingEpisodeId = null;
+      _openingEpisodeSource = null;
+      _quarantinedInternalSource = null;
+      _quarantinedInternalOperationPending = false;
+      _quarantinedInternalOperationGeneration = null;
       _lastObservedSource = widget.controller.value.source;
+      _lastObservedLifecycle = widget.controller.value.lifecycle;
       _syncActiveEpisodeFromSource();
-    } else if (oldWidget.episodes != widget.episodes &&
-        _episodeWithId(_activeEpisodeId) == null) {
-      _syncActiveEpisodeFromSource();
+    } else if (oldWidget.episodes != widget.episodes) {
+      if (_openingEpisodeId != null) {
+        final int invalidatedGeneration = _episodeOperationGeneration;
+        _episodeOperationGeneration += 1;
+        _quarantinedInternalSource = _openingEpisodeSource;
+        _quarantinedInternalOperationPending = true;
+        _quarantinedInternalOperationGeneration = invalidatedGeneration;
+        _openingEpisodeId = null;
+        _openingEpisodeSource = null;
+      }
+      if (_episodeWithId(_activeEpisodeId) == null) {
+        _syncActiveEpisodeFromSource();
+      }
     }
   }
 
@@ -150,11 +171,29 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     if (!mounted) {
       return;
     }
-    final VideoSource? source = widget.controller.value.source;
+    final UnifiedVideoState state = widget.controller.value;
+    final UnifiedVideoLifecycle? previousLifecycle = _lastObservedLifecycle;
+    _lastObservedLifecycle = state.lifecycle;
+    final VideoSource? source = state.source;
     if (!_sameSource(source, _lastObservedSource)) {
       if (_openingEpisodeId == null) {
-        _lastObservedSource = source;
-        _syncActiveEpisodeFromSource();
+        final bool sourceIsQuarantined = _sameSource(
+          source,
+          _quarantinedInternalSource,
+        );
+        final bool completedExternalOpen =
+            sourceIsQuarantined &&
+            !_quarantinedInternalOperationPending &&
+            previousLifecycle == UnifiedVideoLifecycle.opening &&
+            state.lifecycle == UnifiedVideoLifecycle.ready;
+        if (!sourceIsQuarantined || completedExternalOpen) {
+          if (completedExternalOpen) {
+            _quarantinedInternalSource = null;
+            _quarantinedInternalOperationGeneration = null;
+          }
+          _lastObservedSource = source;
+          _syncActiveEpisodeFromSource();
+        }
       }
     }
     if (_fullscreenTransitioning) {
@@ -316,7 +355,10 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     }
     final UnifiedVideoController openingController = widget.controller;
     final int openingGeneration = ++_episodeOperationGeneration;
-    setState(() => _openingEpisodeId = episode.id);
+    setState(() {
+      _openingEpisodeId = episode.id;
+      _openingEpisodeSource = episode.source;
+    });
     try {
       await openingController.open(episode.source);
       if (!mounted ||
@@ -327,15 +369,36 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       setState(() {
         _activeEpisodeId = episode.id;
         _lastObservedSource = openingController.value.source;
+        _quarantinedInternalSource = null;
+        _quarantinedInternalOperationPending = false;
+        _quarantinedInternalOperationGeneration = null;
       });
       widget.onEpisodeChanged?.call(episode);
       return true;
+    } catch (_) {
+      if (mounted &&
+          widget.controller == openingController &&
+          _episodeOperationGeneration == openingGeneration) {
+        _quarantinedInternalSource = episode.source;
+        _quarantinedInternalOperationPending = false;
+        _quarantinedInternalOperationGeneration = openingGeneration;
+      }
+      rethrow;
     } finally {
+      if (mounted &&
+          _quarantinedInternalOperationGeneration == openingGeneration &&
+          _episodeOperationGeneration != openingGeneration &&
+          _sameSource(_quarantinedInternalSource, episode.source)) {
+        _quarantinedInternalOperationPending = false;
+      }
       if (mounted &&
           widget.controller == openingController &&
           _episodeOperationGeneration == openingGeneration &&
           _openingEpisodeId == episode.id) {
-        setState(() => _openingEpisodeId = null);
+        setState(() {
+          _openingEpisodeId = null;
+          _openingEpisodeSource = null;
+        });
       }
     }
   }
@@ -380,6 +443,7 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
   bool _danmakuEnabled = false;
   bool _mirrored = false;
   int _quarterTurns = 0;
+  int _contextOverlayGeneration = 0;
   Timer? _hideControlsTimer;
   UnifiedVideoLifecycle? _lastLifecycle;
   late bool _lastFullscreen;
@@ -518,6 +582,7 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
   }
 
   void _openEpisodePanel() {
+    _contextOverlayGeneration += 1;
     _hideControlsTimer?.cancel();
     _configureEpisodePanelMotion();
     setState(() => _episodePanelVisible = true);
@@ -525,8 +590,13 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
   }
 
   void _closeEpisodePanel() {
+    _contextOverlayGeneration += 1;
+    unawaited(_dismissEpisodePanel());
+  }
+
+  Future<bool> _dismissEpisodePanel() async {
     if (!_episodePanelVisible && _episodePanelController.isDismissed) {
-      return;
+      return true;
     }
     _configureEpisodePanelMotion();
     if (mounted) {
@@ -534,8 +604,13 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
     } else {
       _episodePanelVisible = false;
     }
-    _episodePanelController.reverse();
     _scheduleAutoHideIfNeeded();
+    try {
+      await _episodePanelController.reverse().orCancel;
+      return true;
+    } on TickerCanceled {
+      return false;
+    }
   }
 
   Future<void> _selectEpisode(VideoEpisode episode) async {
@@ -549,9 +624,15 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
     }
   }
 
-  void _openContextSettings() {
-    _closeEpisodePanel();
-    _ignorePlaybackError(_openSettingsSheet);
+  Future<void> _openContextSettings() async {
+    final int openingGeneration = ++_contextOverlayGeneration;
+    final bool panelDismissed = await _dismissEpisodePanel();
+    if (!mounted ||
+        !panelDismissed ||
+        _contextOverlayGeneration != openingGeneration) {
+      return;
+    }
+    await _openSettingsSheet();
   }
 
   void _startScrubbing() {
