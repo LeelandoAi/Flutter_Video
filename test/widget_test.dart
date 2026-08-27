@@ -24,6 +24,7 @@ void main() {
     double viewPaddingLeft = 0,
     double viewPaddingRight = 0,
     double viewPaddingBottom = 0,
+    double aspectRatio = 16 / 9,
   }) async {
     tester.view.physicalSize = viewSize;
     tester.view.devicePixelRatio = 1;
@@ -60,6 +61,7 @@ void main() {
             episodes: episodes,
             initialEpisodeId: initialEpisodeId,
             onEpisodeChanged: onEpisodeChanged,
+            aspectRatio: aspectRatio,
           ),
         ),
       ),
@@ -1353,6 +1355,124 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('Compact 嵌入倍速浮层可滚动并实际选择首尾预设', (WidgetTester tester) async {
+    // Catches a full-height popover clipping both extremes outside a short embed.
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      viewSize: const Size(393, 221),
+      aspectRatio: 393 / 221,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pumpAndSettle();
+    final Finder panel = find.byKey(const ValueKey<String>('speed-panel'));
+    final Finder scrollable = find.descendant(
+      of: panel,
+      matching: find.byType(Scrollable),
+    );
+    expect(scrollable, findsOneWidget);
+    expect(
+      tester.getRect(panel).top,
+      greaterThanOrEqualTo(
+        tester.getRect(find.byKey(const ValueKey<String>('player-frame'))).top,
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-option-0.5')));
+    await tester.pumpAndSettle();
+    expect(controller.value.speed, 0.5);
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pumpAndSettle();
+    final ScrollPosition position = tester
+        .state<ScrollableState>(scrollable)
+        .position;
+    expect(position.pixels, 0);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('speed-option-3.0')),
+      80,
+      scrollable: scrollable,
+    );
+    await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(0));
+    await tester.tap(find.byKey(const ValueKey<String>('speed-option-3.0')));
+    await tester.pumpAndSettle();
+
+    expect(controller.value.speed, 3.0);
+    expect(find.byKey(const ValueKey<String>('speed-panel')), findsNothing);
+  });
+
+  testWidgets('Expanded 倍速浮层按局部高度滚动并实际选择首尾预设', (WidgetTester tester) async {
+    // Catches viewport-based sizing or a non-scrollable 8-row Expanded popover.
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      viewSize: const Size(852, 393),
+      aspectRatio: 852 / 393,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pumpAndSettle();
+    final Finder panel = find.byKey(const ValueKey<String>('speed-panel'));
+    final Finder scrollable = find.descendant(
+      of: panel,
+      matching: find.byType(Scrollable),
+    );
+    expect(scrollable, findsOneWidget);
+    expect(
+      tester.getRect(panel).top,
+      greaterThanOrEqualTo(
+        tester.getRect(find.byKey(const ValueKey<String>('player-frame'))).top,
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-option-0.5')));
+    await tester.pumpAndSettle();
+    expect(controller.value.speed, 0.5);
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pumpAndSettle();
+    final ScrollPosition position = tester
+        .state<ScrollableState>(scrollable)
+        .position;
+    expect(position.pixels, 0);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('speed-option-3.0')),
+      80,
+      scrollable: scrollable,
+    );
+    await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(0));
+    await tester.tap(find.byKey(const ValueKey<String>('speed-option-3.0')));
+    await tester.pumpAndSettle();
+
+    expect(controller.value.speed, 3.0);
+    expect(find.byKey(const ValueKey<String>('speed-panel')), findsNothing);
+  });
+
+  testWidgets('Wide 倍速末行中心真实指针不被进度条遮挡', (WidgetTester tester) async {
+    // Catches the later full-width Slider winning the 3.0x row hit test.
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pumpAndSettle();
+    final Rect lastRow = tester.getRect(
+      find.byKey(const ValueKey<String>('speed-option-3.0')),
+    );
+    final Rect progress = tester.getRect(
+      find.byKey(const ValueKey<String>('video-progress')),
+    );
+    await tester.tapAt(lastRow.center);
+    await tester.pumpAndSettle();
+
+    expect(controller.value.speed, 3.0);
+    expect(lastRow.bottom, lessThanOrEqualTo(progress.top));
+    expect(find.byKey(const ValueKey<String>('speed-panel')), findsNothing);
+  });
+
   testWidgets('更多设置使用连续分组行而不是 Chip 网格', (WidgetTester tester) async {
     // Catches legacy card/chip grids or the approved group order drifting.
     final SemanticsHandle semantics = tester.ensureSemantics();
@@ -1527,6 +1647,57 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey<String>('speed-option-1.0')),
+        matching: find.byIcon(Icons.check_rounded),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('较早倍速成功不能在最新倍速失败后关闭浮层', (WidgetTester tester) async {
+    // Catches overlay-only generations treating concurrent speed requests as one.
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'delayed-speed-sequence',
+      displayName: '延迟倍速序列内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.windows},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _DelayedThenFailingSpeedVideoKernelAdapter adapter =
+        _DelayedThenFailingSpeedVideoKernelAdapter(descriptor);
+    final UnifiedVideoController controller = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(descriptor: descriptor, create: () => adapter),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.windows,
+      stateRefreshInterval: null,
+    );
+    await controller.open(VideoSource.network(sampleMp4Url));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: UnifiedVideoPlayer(controller: controller)),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('speed-option-1.25')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('speed-option-1.5')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey<String>('speed-panel')), findsOneWidget);
+
+    adapter.completeFirstRequest();
+    await tester.pumpAndSettle();
+
+    expect(controller.value.speed, 1.25);
+    expect(controller.value.lifecycle, UnifiedVideoLifecycle.failed);
+    expect(find.byKey(const ValueKey<String>('speed-panel')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('speed-option-1.25')),
         matching: find.byIcon(Icons.check_rounded),
       ),
       findsOneWidget,
@@ -2847,6 +3018,33 @@ class _FailingSpeedVideoKernelAdapter extends FakeVideoKernelAdapter {
       throw StateError('模拟倍速应用失败');
     }
     return super.setSpeed(speed, state);
+  }
+}
+
+class _DelayedThenFailingSpeedVideoKernelAdapter
+    extends FakeVideoKernelAdapter {
+  _DelayedThenFailingSpeedVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  final Completer<UnifiedVideoState> _firstRequest =
+      Completer<UnifiedVideoState>();
+  UnifiedVideoState? _firstState;
+  double? _firstSpeed;
+  int _requestCount = 0;
+
+  @override
+  Future<UnifiedVideoState> setSpeed(double speed, UnifiedVideoState state) {
+    _requestCount += 1;
+    if (_requestCount == 1) {
+      _firstState = state;
+      _firstSpeed = speed;
+      return _firstRequest.future;
+    }
+    throw StateError('模拟最新倍速请求失败');
+  }
+
+  void completeFirstRequest() {
+    _firstRequest.complete(_firstState!.copyWith(speed: _firstSpeed));
   }
 }
 

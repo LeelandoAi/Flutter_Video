@@ -450,6 +450,7 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
   bool _nightModeEnabled = false;
   int _quarterTurns = 0;
   int _contextOverlayGeneration = 0;
+  int _speedRequestGeneration = 0;
   Timer? _hideControlsTimer;
   UnifiedVideoLifecycle? _lastLifecycle;
   late bool _lastFullscreen;
@@ -646,14 +647,16 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
   }
 
   Future<void> _selectSpeed(double speed) async {
-    final int generation = _contextOverlayGeneration;
+    final int contextGeneration = _contextOverlayGeneration;
+    final int requestGeneration = ++_speedRequestGeneration;
     try {
       await widget.controller.setSpeed(speed);
     } catch (_) {
       return;
     }
     if (mounted &&
-        generation == _contextOverlayGeneration &&
+        contextGeneration == _contextOverlayGeneration &&
+        requestGeneration == _speedRequestGeneration &&
         _contextOverlay == _PlayerContextOverlay.speed) {
       _closeContextOverlay();
     }
@@ -1117,11 +1120,17 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
           child: panel,
         );
       case _PlayerContextOverlay.speed:
+        final double speedBottom = metrics.bottomPadding + 88;
         return Positioned(
           right: metrics.rightPadding + 44 + (metrics.showMore ? 44 : 0),
-          bottom: metrics.bottomPadding + 52,
+          bottom: speedBottom,
           width: 168,
-          child: panel,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: math.max(60, constraints.maxHeight - speedBottom - 8),
+            ),
+            child: panel,
+          ),
         );
       case _PlayerContextOverlay.settings:
         if (metrics.mode == PlayerViewMode.wide) {

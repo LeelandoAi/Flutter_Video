@@ -31,7 +31,8 @@ class PlayerSpeedPanel extends StatelessWidget {
         surfaceKey: const ValueKey<String>('speed-panel-surface'),
         borderRadius: BorderRadius.circular(18),
         materialProgress: materialProgress,
-        child: Padding(
+        child: SingleChildScrollView(
+          key: const ValueKey<String>('speed-options-scroll'),
           padding: const EdgeInsets.all(8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
