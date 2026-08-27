@@ -891,6 +891,57 @@ void main() {
     expect(find.byKey(const ValueKey<String>('episode-panel')), findsNothing);
   });
 
+  testWidgets('选集成功回调不会造成第二次打开', (WidgetTester tester) async {
+    // Catches host callbacks reopening a source already opened by the player.
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'counting',
+      displayName: '计数测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.windows},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _CountingOpenVideoKernelAdapter adapter =
+        _CountingOpenVideoKernelAdapter(descriptor);
+    final UnifiedVideoController controller = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(descriptor: descriptor, create: () => adapter),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.windows,
+      stateRefreshInterval: null,
+    );
+    final List<VideoEpisode> episodes = testEpisodes();
+    await controller.open(episodes.first.source);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: UnifiedVideoPlayer(
+            controller: controller,
+            episodes: episodes,
+            initialEpisodeId: 'e1',
+            onEpisodeChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    expect(adapter.openCount, 1);
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('episode-option-e2')));
+    await tester.pumpAndSettle();
+
+    expect(adapter.openCount, 2);
+
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('episode-option-e2')));
+    await tester.pumpAndSettle();
+
+    expect(adapter.openCount, 2);
+  });
+
   testWidgets('Expanded 与 Wide 使用批准的选集面板位置和尺寸', (WidgetTester tester) async {
     // Catches mode placement drifting from edge-sheet and anchored-popover rules.
     await pumpPlayer(

@@ -269,6 +269,34 @@ UnifiedVideoPlayer(
 
 默认控件包含进度、当前时间、总时长、上一集、下一集、播放/暂停、全屏、切换内容、切换内核、缩放模式和倍速选择。
 
+### 内置选集
+
+将片源作为 `VideoEpisode` 传入后，播放器会在内部打开上一集、下一集和选集面板中的目标集；`onEpisodeChanged` 只用于同步宿主状态或更新业务展示，不需要再次调用 `controller.open`。
+
+```dart
+final episodes = <VideoEpisode>[
+  VideoEpisode(
+    id: 'e01',
+    title: '第 1 集',
+    subtitle: '启程',
+    source: VideoSource.network('https://example.com/e01.m3u8'),
+  ),
+];
+
+UnifiedVideoPlayer(
+  controller: controller,
+  episodes: episodes,
+  initialEpisodeId: 'e01',
+  onEpisodeChanged: (episode) {
+    debugPrint('正在播放 ${episode.title}');
+  },
+)
+```
+
+### 宿主应用的屏幕适配
+
+如需使用 `flutter_autosize_screen`，只能由宿主应用在应用根部初始化并完成 `MediaQuery` 的尺寸转换：移动端以短边 `393` 为设计基准，桌面端以短边 `720` 为设计基准。播放器核心包不会导入、初始化或声明 `flutter_autosize_screen` 依赖；传入播放器的是宿主已转换后的 `MediaQuery` 环境。
+
 示例首页参考 GSYVideoPlayer 常见播放器验证思路，提供 MP4、HLS、DASH、错误地址、上一集/下一集、切换内容、切换内核、缩放模式、播放倍速和全屏入口。所有播放源场景定义在 `defaultPlaybackScenarios`，业务应用可以直接复用或替换成自己的片源清单。
 
 ## GSY 场景验证

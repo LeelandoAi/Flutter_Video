@@ -2,6 +2,9 @@
 
 ## 0.2.0 - 2026-08-25
 
+- 新增 `VideoEpisode`、`episodes`、`initialEpisodeId` 和 `onEpisodeChanged` 公共 API；播放器可在内部完成上一集、下一集和选集导航。
+- View 升级为响应式 Liquid Glass 播放器界面，并保留不同屏幕尺寸下的选集交互。
+- 保持 `onPrevious`、`onNext` 和 `onSwitchContent` 等旧回调兼容；未传入内置选集时沿用旧行为。
 - 包名由 `lee_video` 迁移为 `leelando_video`，可选内核包同步使用 `leelando_video_*` 前缀。
 - 建立 Pub workspace，并将核心包依赖收敛为 Flutter SDK。
 - 将 Erika、Media Kit、FVP 和 Flutter 官方 `video_player` 内核拆分为独立可安装包，并提供全量便捷包 `leelando_video_all`。

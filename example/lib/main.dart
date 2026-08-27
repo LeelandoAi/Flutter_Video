@@ -69,6 +69,18 @@ class _DemoHomePageState extends State<DemoHomePage>
       )
       .toList(growable: false);
 
+  List<VideoEpisode> get _episodes => _sources.indexed
+      .map((entry) {
+        final PlaybackScenario scenario = entry.$2;
+        return VideoEpisode(
+          id: 'scenario-${entry.$1}',
+          title: scenario.source.metadata.episodeTitle ?? scenario.title,
+          subtitle: scenario.title,
+          source: scenario.source,
+        );
+      })
+      .toList(growable: false);
+
   @override
   void initState() {
     super.initState();
@@ -140,6 +152,18 @@ class _DemoHomePageState extends State<DemoHomePage>
 
     Widget player = UnifiedVideoPlayer(
       controller: _controller,
+      episodes: _episodes,
+      initialEpisodeId: 'scenario-$_sourceIndex',
+      onEpisodeChanged: (VideoEpisode episode) {
+        final int sourceIndex = _episodes.indexWhere(
+          (VideoEpisode candidate) => candidate.id == episode.id,
+        );
+        if (sourceIndex != -1 && sourceIndex != _sourceIndex) {
+          setState(() {
+            _sourceIndex = sourceIndex;
+          });
+        }
+      },
       onPrevious: _sourceIndex == 0 ? null : _previousSource,
       onNext: _sourceIndex == _sources.length - 1 ? null : _nextSource,
       onSwitchContent: _switchContent,
