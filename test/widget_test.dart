@@ -119,6 +119,16 @@ void main() {
     ),
   ];
 
+  UnifiedVideoController _createFakeController() {
+    return UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[createFakeVideoKernel()],
+      ),
+      platform: UnifiedVideoPlatform.android,
+      stateRefreshInterval: null,
+    );
+  }
+
   testWidgets('传入选集后上一集和下一集由播放器直接打开', (WidgetTester tester) async {
     // Catches navigation regressing to the legacy next callback.
     final List<VideoEpisode> episodes = <VideoEpisode>[
@@ -171,6 +181,9 @@ void main() {
     );
     await tester.pump();
     expect(previousCalls, 0);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
 
     int nextCalls = 0;
     await pumpPlayer(
@@ -267,6 +280,247 @@ void main() {
     );
 
     expect(adapter.openCount, 0);
+    expect(controller.value.source, isNull);
+  });
+
+  testWidgets('替换控制器后按新控制器播放源同步活动选集', (WidgetTester tester) async {
+    // Catches controller replacement incorrectly reapplying initialEpisodeId.
+    final List<VideoEpisode> episodes = _testEpisodes();
+    final UnifiedVideoController firstController = _createFakeController();
+    final UnifiedVideoController replacementController =
+        _createFakeController();
+    addTearDown(firstController.dispose);
+    addTearDown(replacementController.dispose);
+    await firstController.open(episodes[0].source);
+    await replacementController.open(episodes[0].source);
+    UnifiedVideoController visibleController = firstController;
+    late StateSetter updateHost;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setState) {
+              updateHost = setState;
+              return UnifiedVideoPlayer(
+                controller: visibleController,
+                episodes: episodes,
+                initialEpisodeId: 'e2',
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    updateHost(() => visibleController = replacementController);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('next-episode')));
+    await tester.pumpAndSettle();
+
+    expect(replacementController.value.source?.uri, episodes[1].source.uri);
+  });
+
+  testWidgets('旧控制器延迟打开不会覆盖新控制器状态或回调', (WidgetTester tester) async {
+    // Catches an old async open mutating the replacement controller's player.
+    const VideoKernelDescriptor delayedDescriptor = VideoKernelDescriptor(
+      id: 'episode-delayed',
+      displayName: '选集延迟内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _DelayedOpenVideoKernelAdapter delayedAdapter =
+        _DelayedOpenVideoKernelAdapter(delayedDescriptor);
+    final UnifiedVideoController firstController = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(
+            descriptor: delayedDescriptor,
+            create: () => delayedAdapter,
+          ),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.android,
+      stateRefreshInterval: null,
+    );
+    final UnifiedVideoController replacementController =
+        _createFakeController();
+    addTearDown(firstController.dispose);
+    addTearDown(replacementController.dispose);
+    final List<VideoEpisode> episodes = _testEpisodes();
+    await replacementController.open(episodes[0].source);
+    UnifiedVideoController visibleController = firstController;
+    bool usingReplacementCallback = false;
+    final List<String> replacementChanges = <String>[];
+    late StateSetter updateHost;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setState) {
+              updateHost = setState;
+              return UnifiedVideoPlayer(
+                controller: visibleController,
+                episodes: episodes,
+                initialEpisodeId: 'e1',
+                onEpisodeChanged: (VideoEpisode episode) {
+                  if (usingReplacementCallback) {
+                    replacementChanges.add(episode.id);
+                  }
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('next-episode')));
+    await tester.pump();
+
+    updateHost(() {
+      visibleController = replacementController;
+      usingReplacementCallback = true;
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('next-episode')));
+    await tester.pumpAndSettle();
+    expect(replacementController.value.source?.uri, episodes[1].source.uri);
+    expect(replacementChanges, <String>['e2']);
+
+    delayedAdapter.completeOpen();
+    await tester.pumpAndSettle();
+
+    expect(replacementController.value.source?.uri, episodes[1].source.uri);
+    expect(replacementChanges, <String>['e2']);
+  });
+
+  testWidgets('后续外部播放源变更会重匹配活动选集', (WidgetTester tester) async {
+    // Catches controller source changes leaving the old active episode selected.
+    final List<VideoEpisode> episodes = _testEpisodes();
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      episodes: episodes,
+      initialEpisodeId: 'e1',
+    );
+
+    await controller.open(episodes[1].source);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('next-episode')));
+    await tester.pumpAndSettle();
+
+    expect(controller.value.source?.uri, episodes[2].source.uri);
+  });
+
+  testWidgets('更新选集列表时保留仍存在的活动选集', (WidgetTester tester) async {
+    // Catches list updates discarding an active ID that remains available.
+    final List<VideoEpisode> episodes = _testEpisodes();
+    final UnifiedVideoController controller = _createFakeController();
+    addTearDown(controller.dispose);
+    List<VideoEpisode> visibleEpisodes = episodes;
+    late StateSetter updateHost;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setState) {
+              updateHost = setState;
+              return UnifiedVideoPlayer(
+                controller: controller,
+                episodes: visibleEpisodes,
+                initialEpisodeId: 'e2',
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    updateHost(() {
+      visibleEpisodes = <VideoEpisode>[episodes[1], episodes[0], episodes[2]];
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('next-episode')));
+    await tester.pumpAndSettle();
+
+    expect(controller.value.source?.uri, episodes[0].source.uri);
+  });
+
+  testWidgets('移除活动选集后按当前播放源重匹配', (WidgetTester tester) async {
+    // Catches removal of the active episode leaving stale navigation state.
+    final List<VideoEpisode> episodes = _testEpisodes();
+    final UnifiedVideoController controller = _createFakeController();
+    addTearDown(controller.dispose);
+    await controller.open(episodes[0].source);
+    List<VideoEpisode> visibleEpisodes = episodes;
+    late StateSetter updateHost;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setState) {
+              updateHost = setState;
+              return UnifiedVideoPlayer(
+                controller: controller,
+                episodes: visibleEpisodes,
+                initialEpisodeId: 'e2',
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    updateHost(
+      () => visibleEpisodes = <VideoEpisode>[episodes[0], episodes[2]],
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('next-episode')));
+    await tester.pumpAndSettle();
+
+    expect(controller.value.source?.uri, episodes[2].source.uri);
+  });
+
+  testWidgets('无法重匹配时清除已移除的活动选集', (WidgetTester tester) async {
+    // Catches an unresolved list update retaining a stale active ID.
+    final List<VideoEpisode> episodes = _testEpisodes();
+    final UnifiedVideoController controller = _createFakeController();
+    addTearDown(controller.dispose);
+    List<VideoEpisode> visibleEpisodes = episodes;
+    int legacyNextCalls = 0;
+    late StateSetter updateHost;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setState) {
+              updateHost = setState;
+              return UnifiedVideoPlayer(
+                controller: controller,
+                episodes: visibleEpisodes,
+                initialEpisodeId: 'e2',
+                onNext: () => legacyNextCalls += 1,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    updateHost(
+      () => visibleEpisodes = <VideoEpisode>[episodes[0], episodes[2]],
+    );
+    await tester.pumpAndSettle();
+    updateHost(() => visibleEpisodes = episodes);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('next-episode')));
+    await tester.pump();
+
+    expect(legacyNextCalls, 1);
     expect(controller.value.source, isNull);
   });
 

@@ -67,11 +67,9 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       oldWidget.controller.releaseFullscreenOwnership();
       widget.controller.claimFullscreenOwnershipIfUnclaimed();
       widget.controller.addListener(_handleControllerFullscreenChanged);
+      _openingEpisodeId = null;
       _lastObservedSource = widget.controller.value.source;
-      _activeEpisodeId = _episodeWithId(widget.initialEpisodeId)?.id;
-      if (_activeEpisodeId == null) {
-        _syncActiveEpisodeFromSource();
-      }
+      _syncActiveEpisodeFromSource();
     } else if (oldWidget.episodes != widget.episodes &&
         _episodeWithId(_activeEpisodeId) == null) {
       _syncActiveEpisodeFromSource();
@@ -304,16 +302,19 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     if (_openingEpisodeId != null || episode.id == _activeEpisodeId) {
       return;
     }
+    final UnifiedVideoController openingController = widget.controller;
     setState(() => _openingEpisodeId = episode.id);
     try {
-      await widget.controller.open(episode.source);
-      if (!mounted) {
+      await openingController.open(episode.source);
+      if (!mounted || widget.controller != openingController) {
         return;
       }
       setState(() => _activeEpisodeId = episode.id);
       widget.onEpisodeChanged?.call(episode);
     } finally {
-      if (mounted && _openingEpisodeId == episode.id) {
+      if (mounted &&
+          widget.controller == openingController &&
+          _openingEpisodeId == episode.id) {
         setState(() => _openingEpisodeId = null);
       }
     }
