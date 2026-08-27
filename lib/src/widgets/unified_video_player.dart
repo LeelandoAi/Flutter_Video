@@ -11,6 +11,9 @@ class UnifiedVideoPlayer extends StatefulWidget {
   const UnifiedVideoPlayer({
     super.key,
     required this.controller,
+    this.episodes = const <VideoEpisode>[],
+    this.initialEpisodeId,
+    this.onEpisodeChanged,
     this.onPrevious,
     this.onNext,
     this.onSwitchContent,
@@ -19,6 +22,9 @@ class UnifiedVideoPlayer extends StatefulWidget {
   });
 
   final UnifiedVideoController controller;
+  final List<VideoEpisode> episodes;
+  final String? initialEpisodeId;
+  final ValueChanged<VideoEpisode>? onEpisodeChanged;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
   final VoidCallback? onSwitchContent;
@@ -36,10 +42,18 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
   );
   bool _fullscreenOverlayVisible = false;
   bool _fullscreenTransitioning = false;
+  String? _activeEpisodeId;
+  String? _openingEpisodeId;
+  VideoSource? _lastObservedSource;
 
   @override
   void initState() {
     super.initState();
+    _validateEpisodes(widget.episodes);
+    _lastObservedSource = widget.controller.value.source;
+    _activeEpisodeId =
+        _episodeWithId(widget.initialEpisodeId)?.id ??
+        _episodeMatchingSource(widget.controller.value.source)?.id;
     widget.controller.claimFullscreenOwnershipIfUnclaimed();
     widget.controller.addListener(_handleControllerFullscreenChanged);
   }
@@ -47,11 +61,20 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
   @override
   void didUpdateWidget(covariant UnifiedVideoPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _validateEpisodes(widget.episodes);
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_handleControllerFullscreenChanged);
       oldWidget.controller.releaseFullscreenOwnership();
       widget.controller.claimFullscreenOwnershipIfUnclaimed();
       widget.controller.addListener(_handleControllerFullscreenChanged);
+      _lastObservedSource = widget.controller.value.source;
+      _activeEpisodeId = _episodeWithId(widget.initialEpisodeId)?.id;
+      if (_activeEpisodeId == null) {
+        _syncActiveEpisodeFromSource();
+      }
+    } else if (oldWidget.episodes != widget.episodes &&
+        _episodeWithId(_activeEpisodeId) == null) {
+      _syncActiveEpisodeFromSource();
     }
   }
 
@@ -95,8 +118,8 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     final Widget playerView = _UnifiedVideoPlayerView(
       key: _playerViewKey,
       controller: widget.controller,
-      onPrevious: widget.onPrevious,
-      onNext: widget.onNext,
+      onPrevious: _previousEpisodeAction(),
+      onNext: _nextEpisodeAction(),
       onSwitchContent: widget.onSwitchContent,
       onFullscreenPressed: _toggleFullscreen,
       autoHideControlsDelay: widget.autoHideControlsDelay,
@@ -117,7 +140,15 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
   }
 
   void _handleControllerFullscreenChanged() {
-    if (!mounted || _fullscreenTransitioning) {
+    if (!mounted) {
+      return;
+    }
+    final VideoSource? source = widget.controller.value.source;
+    if (!_sameSource(source, _lastObservedSource)) {
+      _lastObservedSource = source;
+      _syncActiveEpisodeFromSource();
+    }
+    if (_fullscreenTransitioning) {
       return;
     }
     final bool fullscreen = widget.controller.value.fullscreen;
@@ -183,6 +214,109 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     }
     _fullscreenPortal.hide();
     setState(() => _fullscreenOverlayVisible = false);
+  }
+
+  void _validateEpisodes(List<VideoEpisode> episodes) {
+    final Set<String> ids = <String>{};
+    for (final VideoEpisode episode in episodes) {
+      if (episode.id.trim().isEmpty || !ids.add(episode.id)) {
+        throw FlutterError('VideoEpisode.id 必须非空且在同一列表中唯一。');
+      }
+      if (episode.title.trim().isEmpty) {
+        throw FlutterError('VideoEpisode.title 必须非空。');
+      }
+    }
+  }
+
+  VideoEpisode? _episodeWithId(String? id) {
+    if (id == null) {
+      return null;
+    }
+    for (final VideoEpisode episode in widget.episodes) {
+      if (episode.id == id) {
+        return episode;
+      }
+    }
+    return null;
+  }
+
+  VideoEpisode? _episodeMatchingSource(VideoSource? source) {
+    if (source == null) {
+      return null;
+    }
+    for (final VideoEpisode episode in widget.episodes) {
+      if (_sameSource(episode.source, source)) {
+        return episode;
+      }
+    }
+    return null;
+  }
+
+  bool _sameSource(VideoSource? first, VideoSource? second) {
+    return first?.type == second?.type && first?.uri == second?.uri;
+  }
+
+  void _syncActiveEpisodeFromSource() {
+    final String? matchedId = _episodeMatchingSource(
+      widget.controller.value.source,
+    )?.id;
+    if (matchedId == _activeEpisodeId) {
+      return;
+    }
+    if (mounted) {
+      setState(() => _activeEpisodeId = matchedId);
+    } else {
+      _activeEpisodeId = matchedId;
+    }
+  }
+
+  VoidCallback? _previousEpisodeAction() =>
+      _episodeAction(offset: -1, legacyCallback: widget.onPrevious);
+
+  VoidCallback? _nextEpisodeAction() =>
+      _episodeAction(offset: 1, legacyCallback: widget.onNext);
+
+  VoidCallback? _episodeAction({
+    required int offset,
+    required VoidCallback? legacyCallback,
+  }) {
+    if (widget.episodes.isEmpty) {
+      return legacyCallback;
+    }
+    if (_openingEpisodeId != null) {
+      return null;
+    }
+    final int activeIndex = widget.episodes.indexWhere(
+      (VideoEpisode episode) => episode.id == _activeEpisodeId,
+    );
+    if (activeIndex == -1) {
+      return legacyCallback;
+    }
+    final int targetIndex = activeIndex + offset;
+    if (targetIndex < 0 || targetIndex >= widget.episodes.length) {
+      return null;
+    }
+    return () =>
+        _ignorePlaybackError(() => _openEpisode(widget.episodes[targetIndex]));
+  }
+
+  Future<void> _openEpisode(VideoEpisode episode) async {
+    if (_openingEpisodeId != null || episode.id == _activeEpisodeId) {
+      return;
+    }
+    setState(() => _openingEpisodeId = episode.id);
+    try {
+      await widget.controller.open(episode.source);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _activeEpisodeId = episode.id);
+      widget.onEpisodeChanged?.call(episode);
+    } finally {
+      if (mounted && _openingEpisodeId == episode.id) {
+        setState(() => _openingEpisodeId = null);
+      }
+    }
   }
 }
 

@@ -15,7 +15,15 @@ void main() {
     VoidCallback? onSwitchContent,
     Duration autoHideControlsDelay = const Duration(seconds: 3),
     UnifiedVideoPlatform platform = UnifiedVideoPlatform.android,
+    List<VideoEpisode> episodes = const <VideoEpisode>[],
+    String? initialEpisodeId,
+    ValueChanged<VideoEpisode>? onEpisodeChanged,
+    Size viewSize = const Size(800, 600),
   }) async {
+    tester.view.physicalSize = viewSize;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final UnifiedVideoController controller = UnifiedVideoController(
       registry: VideoKernelRegistry(
         kernels: <RegisteredVideoKernel>[createFakeVideoKernel()],
@@ -38,6 +46,9 @@ void main() {
             onNext: onNext,
             onSwitchContent: onSwitchContent,
             autoHideControlsDelay: autoHideControlsDelay,
+            episodes: episodes,
+            initialEpisodeId: initialEpisodeId,
+            onEpisodeChanged: onEpisodeChanged,
           ),
         ),
       ),
@@ -86,6 +97,178 @@ void main() {
   }
 
   void completeDelayedOpen() => delayedSwitchAdapter.completeOpen();
+
+  List<VideoEpisode> _testEpisodes() => <VideoEpisode>[
+    VideoEpisode(
+      id: 'e1',
+      title: '第 1 集',
+      subtitle: '启程',
+      source: VideoSource.network('https://example.com/e1.mp4'),
+    ),
+    VideoEpisode(
+      id: 'e2',
+      title: '第 2 集',
+      subtitle: '雾港',
+      source: VideoSource.network('https://example.com/e2.mp4'),
+    ),
+    VideoEpisode(
+      id: 'e3',
+      title: '第 3 集',
+      subtitle: '回声',
+      source: VideoSource.network('https://example.com/e3.mp4'),
+    ),
+  ];
+
+  testWidgets('传入选集后上一集和下一集由播放器直接打开', (WidgetTester tester) async {
+    // Catches navigation regressing to the legacy next callback.
+    final List<VideoEpisode> episodes = <VideoEpisode>[
+      VideoEpisode(
+        id: 'e1',
+        title: '第 1 集',
+        source: VideoSource.network('https://example.com/e1.mp4'),
+      ),
+      VideoEpisode(
+        id: 'e2',
+        title: '第 2 集',
+        source: VideoSource.network('https://example.com/e2.mp4'),
+      ),
+      VideoEpisode(
+        id: 'e3',
+        title: '第 3 集',
+        source: VideoSource.network('https://example.com/e3.mp4'),
+      ),
+    ];
+    final List<String> changed = <String>[];
+    int legacyNextCalls = 0;
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      episodes: episodes,
+      initialEpisodeId: 'e2',
+      onEpisodeChanged: (VideoEpisode episode) => changed.add(episode.id),
+      onNext: () => legacyNextCalls += 1,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('next-episode')));
+    await tester.pumpAndSettle();
+
+    expect(controller.value.source?.uri, episodes[2].source.uri);
+    expect(changed, <String>['e3']);
+    expect(legacyNextCalls, 0);
+  });
+
+  testWidgets('首集上一集和末集下一集禁用且不回退旧回调', (WidgetTester tester) async {
+    // Catches boundary buttons delegating to legacy callbacks.
+    int previousCalls = 0;
+    await pumpPlayer(
+      tester,
+      episodes: _testEpisodes(),
+      initialEpisodeId: 'e1',
+      onPrevious: () => previousCalls += 1,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('previous-episode')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+    expect(previousCalls, 0);
+
+    int nextCalls = 0;
+    await pumpPlayer(
+      tester,
+      episodes: _testEpisodes(),
+      initialEpisodeId: 'e3',
+      onNext: () => nextCalls += 1,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('next-episode')),
+      warnIfMissed: false,
+    );
+    await tester.pump();
+    expect(nextCalls, 0);
+  });
+
+  testWidgets('未传选集时上一集仍调用旧回调', (WidgetTester tester) async {
+    // Catches loss of the legacy navigation contract when episodes are absent.
+    int calls = 0;
+    await pumpPlayer(tester, onPrevious: () => calls++);
+
+    await tester.tap(find.byKey(const ValueKey<String>('previous-episode')));
+    await tester.pump();
+
+    expect(calls, 1);
+  });
+
+  testWidgets('重复选集 ID 在建立播放器时失败', (WidgetTester tester) async {
+    // Catches ambiguous active-episode resolution from duplicate IDs.
+    final List<VideoEpisode> episodes = <VideoEpisode>[
+      VideoEpisode(
+        id: 'duplicate',
+        title: '第 1 集',
+        source: VideoSource.network('https://example.com/e1.mp4'),
+      ),
+      VideoEpisode(
+        id: 'duplicate',
+        title: '第 2 集',
+        source: VideoSource.network('https://example.com/e2.mp4'),
+      ),
+    ];
+
+    await pumpPlayer(tester, episodes: episodes);
+
+    expect(tester.takeException(), isA<FlutterError>());
+  });
+
+  testWidgets('空白选集标题在建立播放器时失败', (WidgetTester tester) async {
+    // Catches invalid episode labels reaching the future picker UI.
+    final List<VideoEpisode> episodes = <VideoEpisode>[
+      VideoEpisode(
+        id: 'e1',
+        title: '   ',
+        source: VideoSource.network('https://example.com/e1.mp4'),
+      ),
+    ];
+
+    await pumpPlayer(tester, episodes: episodes);
+
+    expect(tester.takeException(), isA<FlutterError>());
+  });
+
+  testWidgets('initialEpisodeId 只建立高亮且不会自动打开播放源', (WidgetTester tester) async {
+    // Catches initial selection eagerly opening its source during first build.
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'counting',
+      displayName: '计数测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.windows},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _CountingOpenVideoKernelAdapter adapter =
+        _CountingOpenVideoKernelAdapter(descriptor);
+    final UnifiedVideoController controller = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(descriptor: descriptor, create: () => adapter),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.windows,
+      stateRefreshInterval: null,
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: UnifiedVideoPlayer(
+            controller: controller,
+            episodes: _testEpisodes(),
+            initialEpisodeId: 'e2',
+          ),
+        ),
+      ),
+    );
+
+    expect(adapter.openCount, 0);
+    expect(controller.value.source, isNull);
+  });
 
   testWidgets('默认播放器显示必需控件和 fake 播放画面', (WidgetTester tester) async {
     await pumpPlayer(tester, onPrevious: () {}, onNext: () {});
@@ -879,6 +1062,19 @@ class _DelayedOpenVideoKernelAdapter extends FakeVideoKernelAdapter {
     UnifiedVideoState state,
   ) async {
     await _openCompleter.future;
+    return super.open(source, state);
+  }
+}
+
+class _CountingOpenVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _CountingOpenVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  int openCount = 0;
+
+  @override
+  Future<UnifiedVideoState> open(VideoSource source, UnifiedVideoState state) {
+    openCount += 1;
     return super.open(source, state);
   }
 }
