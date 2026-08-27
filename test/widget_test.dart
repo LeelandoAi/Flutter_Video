@@ -1072,14 +1072,15 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    expect(find.byKey(const ValueKey<String>('settings-menu')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('settings-menu')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey<String>('episode-panel')), findsNothing);
     expect(find.text('播放设置'), findsOneWidget);
   });
 
   testWidgets('选集切换到倍速或更多时任一帧只显示一个上下文浮层', (WidgetTester tester) async {
-    // Catches the settings route appearing before the episode reverse completes.
+    // Catches a replacement surface appearing before the episode reverse completes.
     for (final String actionKey in <String>['speed-menu', 'more-menu']) {
       await pumpPlayer(
         tester,
@@ -1098,29 +1099,67 @@ void main() {
           .byKey(const ValueKey<String>('episode-panel'), skipOffstage: false)
           .evaluate()
           .isNotEmpty;
-      final bool settingsVisible = find
-          .text('播放设置', skipOffstage: false)
+      final String replacementKey = actionKey == 'speed-menu'
+          ? 'speed-panel'
+          : 'settings-panel';
+      final bool replacementVisible = find
+          .byKey(ValueKey<String>(replacementKey), skipOffstage: false)
           .evaluate()
           .isNotEmpty;
       expect(
         episodeVisible,
         isTrue,
-        reason: 'episode=$episodeVisible settings=$settingsVisible',
+        reason: 'episode=$episodeVisible replacement=$replacementVisible',
       );
       expect(
-        settingsVisible,
+        replacementVisible,
         isFalse,
-        reason: 'episode=$episodeVisible settings=$settingsVisible',
+        reason: 'episode=$episodeVisible replacement=$replacementVisible',
       );
-      expect(episodeVisible && settingsVisible, isFalse);
-      expect(episodeVisible || settingsVisible, isTrue);
+      expect(episodeVisible && replacementVisible, isFalse);
+      expect(episodeVisible || replacementVisible, isTrue);
 
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey<String>('episode-panel')), findsNothing);
-      expect(find.text('播放设置'), findsOneWidget);
+      expect(find.byKey(ValueKey<String>(replacementKey)), findsOneWidget);
       await tester.tapAt(const Offset(1, 1));
       await tester.pumpAndSettle();
     }
+  });
+
+  testWidgets('倍速更多和选集快速切换时上下文浮层安全取消', (WidgetTester tester) async {
+    // Catches rapid retargeting leaving two surfaces mounted or no final target.
+    await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    int visibleOverlayCount() {
+      return <String>['episode-panel', 'speed-panel', 'settings-panel']
+          .map(
+            (String key) => find
+                .byKey(ValueKey<String>(key), skipOffstage: false)
+                .evaluate()
+                .length,
+          )
+          .fold(0, (int total, int count) => total + count);
+    }
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(visibleOverlayCount(), 1);
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(visibleOverlayCount(), 1);
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(visibleOverlayCount(), 1);
+    await tester.pumpAndSettle();
+    expect(visibleOverlayCount(), 1);
+    expect(find.byKey(const ValueKey<String>('episode-panel')), findsOneWidget);
   });
 
   testWidgets('失败选集源在后续通知中保持隔离且外部重开成功后同步', (WidgetTester tester) async {
@@ -1272,8 +1311,9 @@ void main() {
     );
   });
 
-  testWidgets('倍速选中态使用视频背景上的蓝色强调', (WidgetTester tester) async {
-    // Catches the retired yellow menu-selection treatment returning.
+  testWidgets('倍速浮层包含全部预设并以蓝色勾选当前值', (WidgetTester tester) async {
+    // Catches a partial preset list, color-only selection, or yellow returning.
+    final SemanticsHandle semantics = tester.ensureSemantics();
     await pumpPlayer(
       tester,
       platform: UnifiedVideoPlatform.windows,
@@ -1282,14 +1322,216 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
     await tester.pumpAndSettle();
+    final Finder panel = find.byKey(const ValueKey<String>('speed-panel'));
+    expect(panel, findsOneWidget);
+    expect(
+      find.descendant(of: panel, matching: find.byType(BackdropFilter)),
+      findsOneWidget,
+    );
+    for (final double speed in unifiedVideoSpeedPresets) {
+      final Finder option = find.byKey(ValueKey<String>('speed-option-$speed'));
+      expect(option, findsOneWidget);
+      expect(tester.getSize(option).height, greaterThanOrEqualTo(44));
+    }
+    final Finder selected = find.byKey(
+      const ValueKey<String>('speed-option-1.0'),
+    );
     final Text selectedSpeed = tester.widget<Text>(
-      find.descendant(
-        of: find.byKey(const ValueKey<String>('speed-option-1.0')),
-        matching: find.text('1.0x'),
-      ),
+      find.descendant(of: selected, matching: find.byType(Text)),
     );
 
     expect(selectedSpeed.style?.color, const Color(0xFF7EC3FF));
+    expect(
+      find.descendant(of: selected, matching: find.byIcon(Icons.check_rounded)),
+      findsOneWidget,
+    );
+    expect(
+      tester.getSemantics(selected).flagsCollection.isSelected,
+      Tristate.isTrue,
+    );
+    expect(selectedSpeed.style?.color, isNot(const Color(0xFFFFD700)));
+    semantics.dispose();
+  });
+
+  testWidgets('更多设置使用连续分组行而不是 Chip 网格', (WidgetTester tester) async {
+    // Catches legacy card/chip grids or the approved group order drifting.
+    final SemanticsHandle semantics = tester.ensureSemantics();
+    await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    await tester.pumpAndSettle();
+
+    final Finder panel = find.byKey(const ValueKey<String>('settings-panel'));
+    final Finder picture = find.byKey(
+      const ValueKey<String>('settings-group-picture'),
+    );
+    final Finder playback = find.byKey(
+      const ValueKey<String>('settings-group-playback'),
+    );
+    final Finder kernel = find.byKey(
+      const ValueKey<String>('settings-group-kernel'),
+    );
+    final Finder diagnostics = find.byKey(
+      const ValueKey<String>('settings-group-diagnostics'),
+    );
+    expect(panel, findsOneWidget);
+    expect(picture, findsOneWidget);
+    expect(playback, findsOneWidget);
+    expect(kernel, findsOneWidget);
+    expect(diagnostics, findsOneWidget);
+    expect(
+      tester.getTopLeft(picture).dy,
+      lessThan(tester.getTopLeft(playback).dy),
+    );
+    expect(
+      tester.getTopLeft(playback).dy,
+      lessThan(tester.getTopLeft(kernel).dy),
+    );
+    expect(
+      tester.getTopLeft(kernel).dy,
+      lessThan(tester.getTopLeft(diagnostics).dy),
+    );
+    expect(
+      find.byKey(const ValueKey<String>('settings-chip-grid')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: panel, matching: find.byType(Chip)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: panel, matching: find.byType(Card)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: panel, matching: find.byType(BackdropFilter)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: panel, matching: find.byType(Divider)),
+      findsWidgets,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('fit-option-cover')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('kernel-option-fake')),
+      findsOneWidget,
+    );
+    for (final String selectedKey in <String>[
+      'fit-option-contain',
+      'kernel-option-fake',
+    ]) {
+      final Finder selected = find.byKey(ValueKey<String>(selectedKey));
+      expect(
+        find.descendant(
+          of: selected,
+          matching: find.byIcon(Icons.check_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.getSemantics(selected).flagsCollection.isSelected,
+        Tristate.isTrue,
+      );
+    }
+    semantics.dispose();
+  });
+
+  testWidgets('倍速成功后关闭而更多设置选项保持面板打开', (WidgetTester tester) async {
+    // Catches speed closing before apply and More reverting to one-shot actions.
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('speed-option-1.25')));
+    await tester.pumpAndSettle();
+    expect(controller.value.speed, 1.25);
+    expect(find.byKey(const ValueKey<String>('speed-panel')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('settings-panel')),
+        matching: find.byKey(const ValueKey<String>('mirror-toggle')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('settings-panel')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('fit-option-cover')));
+    await tester.pumpAndSettle();
+    expect(controller.value.fit, UnifiedVideoFit.cover);
+    expect(
+      find.byKey(const ValueKey<String>('settings-panel')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('settings-close')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('settings-panel')), findsNothing);
+  });
+
+  testWidgets('倍速应用失败时保留浮层与原选中值', (WidgetTester tester) async {
+    // Catches a rejected speed being presented as applied or closing the popover.
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'speed-fails',
+      displayName: '倍速失败内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.windows},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final UnifiedVideoController controller = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(
+            descriptor: descriptor,
+            create: () => _FailingSpeedVideoKernelAdapter(descriptor),
+          ),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.windows,
+      stateRefreshInterval: null,
+    );
+    await controller.open(VideoSource.network(sampleMp4Url));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: UnifiedVideoPlayer(
+            controller: controller,
+            autoHideControlsDelay: const Duration(milliseconds: 100),
+          ),
+        ),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('speed-option-1.25')));
+    await tester.pumpAndSettle();
+
+    expect(controller.value.speed, 1.0);
+    expect(find.byKey(const ValueKey<String>('speed-panel')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('speed-option-1.0')),
+        matching: find.byIcon(Icons.check_rounded),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('竖屏嵌入隐藏选集且主控没有可见背景', (WidgetTester tester) async {
@@ -1460,8 +1702,8 @@ void main() {
     );
   });
 
-  testWidgets('更多面板交互项保持 44 热区', (WidgetTester tester) async {
-    // Catches legacy settings actions retaining their old 34-pixel targets.
+  testWidgets('更多设置行和状态操作保持至少 44 像素热区', (WidgetTester tester) async {
+    // Catches settings rows or split rotation/state actions shrinking below touch size.
     await pumpPlayer(
       tester,
       platform: UnifiedVideoPlatform.windows,
@@ -1470,13 +1712,122 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
     await tester.pumpAndSettle();
 
-    final Finder speedOption = find.byKey(
-      const ValueKey<String>('speed-option-1.25'),
+    for (final String key in <String>[
+      'fit-option-cover',
+      'mirror-toggle',
+      'rotation-left',
+      'rotation-right',
+      'kernel-option-fake',
+      'settings-close',
+    ]) {
+      expect(
+        tester.getSize(find.byKey(ValueKey<String>(key))).height,
+        greaterThanOrEqualTo(44),
+        reason: key,
+      );
+    }
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey<String>('fit-option-cover')))
+          .height,
+      greaterThanOrEqualTo(46),
     );
-    expect(tester.getSize(speedOption).height, greaterThanOrEqualTo(44));
-    await tester.tap(speedOption);
+    expect(
+      find.byKey(const ValueKey<String>('settings-panel')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('更多在 Expanded 贴底而 Wide 锚定右下', (WidgetTester tester) async {
+    // Catches the legacy route using one bottom-sheet layout on every platform.
+    await pumpPlayer(
+      tester,
+      viewSize: const Size(852, 393),
+      viewPaddingBottom: 21,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
     await tester.pumpAndSettle();
-    expect(find.text('播放设置'), findsNothing);
+    Rect frame = tester.getRect(
+      find.byKey(const ValueKey<String>('player-frame')),
+    );
+    Rect panel = tester.getRect(
+      find.byKey(const ValueKey<String>('settings-panel')),
+    );
+    expect(panel.left, frame.left);
+    expect(panel.right, frame.right);
+    expect(panel.bottom, frame.bottom);
+
+    await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    await tester.pumpAndSettle();
+    frame = tester.getRect(find.byKey(const ValueKey<String>('player-frame')));
+    panel = tester.getRect(
+      find.byKey(const ValueKey<String>('settings-panel')),
+    );
+    expect(panel.width, lessThanOrEqualTo(400));
+    expect(frame.right - panel.right, 14);
+    expect(frame.bottom - panel.bottom, 52);
+  });
+
+  testWidgets('倍速和更多在降低效果时原地淡入并使用不透明材质', (WidgetTester tester) async {
+    // Catches reduced-motion travel or translucent blur surviving accessibility mode.
+    final UnifiedVideoController controller = createFakeController();
+    addTearDown(controller.dispose);
+    await controller.open(VideoSource.network(sampleMp4Url));
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (BuildContext context, Widget? child) {
+          return MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(disableAnimations: true, highContrast: true),
+            child: child!,
+          );
+        },
+        home: Scaffold(body: UnifiedVideoPlayer(controller: controller)),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pump(const Duration(milliseconds: 100));
+    final Finder speed = find.byKey(const ValueKey<String>('speed-panel'));
+    final Offset speedAtHalf = tester.getTopLeft(speed);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.getTopLeft(speed), speedAtHalf);
+    expect(
+      find.descendant(of: speed, matching: find.byType(BackdropFilter)),
+      findsNothing,
+    );
+    final DecoratedBox speedSurface = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey<String>('speed-panel-surface')),
+    );
+    expect(
+      (speedSurface.decoration as BoxDecoration).color,
+      const Color(0xFF1E1E22),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    await tester.pump(const Duration(milliseconds: 100));
+    final Finder settings = find.byKey(
+      const ValueKey<String>('settings-panel'),
+    );
+    final Offset settingsAtHalf = tester.getTopLeft(settings);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.getTopLeft(settings), settingsAtHalf);
+    expect(
+      find.descendant(of: settings, matching: find.byType(BackdropFilter)),
+      findsNothing,
+    );
   });
 
   testWidgets('弹幕开关同时更新语义蓝色和实心图标', (WidgetTester tester) async {
@@ -1526,7 +1877,6 @@ void main() {
       'player-back',
       'night-mode',
       'favorite',
-      'settings-menu',
       'cast',
       'info',
     ]) {
@@ -1564,6 +1914,53 @@ void main() {
     expect(find.byKey(const ValueKey<String>('episode-picker')), findsNothing);
   });
 
+  testWidgets('无内置选集时更多设置保留旧换源回调', (WidgetTester tester) async {
+    // Catches the compatibility-only change-source action being dropped.
+    int calls = 0;
+    await pumpPlayer(
+      tester,
+      onSwitchContent: () => calls += 1,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('change-source')));
+    await tester.pumpAndSettle();
+
+    expect(calls, 1);
+    expect(
+      find.byKey(const ValueKey<String>('settings-panel')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('有内置选集时更多设置不调用旧换源回调', (WidgetTester tester) async {
+    // Catches legacy source switching bypassing the episode ownership model.
+    int calls = 0;
+    await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      onSwitchContent: () => calls += 1,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('change-source')), findsNothing);
+    expect(calls, 0);
+    await tester.tap(find.byKey(const ValueKey<String>('settings-close')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('episode-option-e2')));
+    await tester.pumpAndSettle();
+    expect(calls, 0);
+  });
+
   testWidgets('未提供上一集和下一集回调时按钮不可点击', (WidgetTester tester) async {
     // Catches disabled transport controls remaining tappable or semantically enabled.
     final SemanticsHandle semantics = tester.ensureSemantics();
@@ -1598,7 +1995,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('3 秒无触摸操作时控件自动隐藏，轻点播放器后重新显示', (WidgetTester tester) async {
+  testWidgets('播放时自动隐藏而暂停状态持续保留主控', (WidgetTester tester) async {
     final UnifiedVideoController controller = await pumpPlayer(
       tester,
       autoHideControlsDelay: const Duration(milliseconds: 200),
@@ -1630,10 +2027,6 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 220));
     await tester.pump(const Duration(milliseconds: 200));
-    expect(_controlsOverlay(tester).opacity, 0);
-
-    await tester.tapAt(tester.getCenter(find.byType(UnifiedVideoPlayer)));
-    await tester.pump();
     expect(_controlsOverlay(tester).opacity, 1);
   });
 
@@ -1729,30 +2122,47 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('播放结束后不显示单独重播按钮，点击播放按钮从头播放', (WidgetTester tester) async {
-    final UnifiedVideoController controller = await pumpPlayer(tester);
+  testWidgets('结束状态提供重播和下一集且持续保留主控', (WidgetTester tester) async {
+    // Catches ended actions disappearing or the controls auto-hiding.
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      autoHideControlsDelay: const Duration(milliseconds: 100),
+    );
     controller.value = controller.value.copyWith(
       lifecycle: UnifiedVideoLifecycle.ended,
       position: controller.value.duration,
     );
     await tester.pump();
 
-    expect(find.byIcon(Icons.replay), findsNothing);
-
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(_controlsOverlay(tester).opacity, 0);
-
-    await tester.tapAt(tester.getCenter(find.byType(UnifiedVideoPlayer)));
-    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('ended-state-indicator')),
+      findsOneWidget,
+    );
+    final Finder replay = find.byKey(const ValueKey<String>('state-replay'));
+    final Finder next = find.byKey(const ValueKey<String>('state-next'));
+    expect(replay, findsOneWidget);
+    expect(next, findsOneWidget);
+    expect(tester.getSize(replay).height, greaterThanOrEqualTo(44));
+    expect(tester.getSize(next).height, greaterThanOrEqualTo(44));
+    await tester.pump(const Duration(milliseconds: 320));
     expect(_controlsOverlay(tester).opacity, 1);
 
-    await tester.tap(find.byKey(const ValueKey<String>('play-pause')));
-    await tester.pump();
-    await tester.pump();
+    await tester.tap(replay);
+    await tester.pumpAndSettle();
 
     expect(controller.value.lifecycle, UnifiedVideoLifecycle.playing);
     expect(controller.value.position, Duration.zero);
+
+    controller.value = controller.value.copyWith(
+      lifecycle: UnifiedVideoLifecycle.ended,
+      position: controller.value.duration,
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('state-next')));
+    await tester.pumpAndSettle();
+    expect(controller.value.source?.uri.path, endsWith('e2.mp4'));
   });
 
   testWidgets('UI 可以修改缩放、倍速和全屏状态', (WidgetTester tester) async {
@@ -1763,6 +2173,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('fit-option-cover')));
     await tester.pumpAndSettle();
     expect(controller.value.fit, UnifiedVideoFit.cover);
+    expect(
+      find.byKey(const ValueKey<String>('settings-panel')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('settings-close')));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
     await tester.pumpAndSettle();
@@ -2071,6 +2487,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('正在加载视频'), findsOneWidget);
+    expect(_controlsOverlay(tester).opacity, 0);
 
     adapter.completeOpen();
     await opening;
@@ -2082,6 +2499,7 @@ void main() {
 
     controller.value = controller.value.copyWith(
       lifecycle: UnifiedVideoLifecycle.buffering,
+      position: const Duration(minutes: 18, seconds: 32),
     );
     await tester.pump();
     expect(
@@ -2089,6 +2507,35 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('正在缓冲'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('buffering-position')),
+      findsOneWidget,
+    );
+    expect(find.text('18:32 已保留'), findsOneWidget);
+  });
+
+  testWidgets('暂停状态显示中心反馈且贴底主控保持可用', (WidgetTester tester) async {
+    // Catches paused feedback disappearing or controls continuing to auto-hide.
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      autoHideControlsDelay: const Duration(milliseconds: 100),
+    );
+    await controller.play();
+    await controller.pause();
+    await tester.pump();
+
+    final Finder paused = find.byKey(
+      const ValueKey<String>('paused-state-indicator'),
+    );
+    expect(paused, findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('play-pause')), findsOneWidget);
+    expect(tester.getSize(paused).height, greaterThanOrEqualTo(44));
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(_controlsOverlay(tester).opacity, 1);
+
+    await tester.tap(paused);
+    await tester.pumpAndSettle();
+    expect(controller.value.lifecycle, UnifiedVideoLifecycle.playing);
   });
 
   testWidgets('切换内核时保持播放器 View 并显示目标内核 Loading', (WidgetTester tester) async {
@@ -2212,32 +2659,52 @@ void main() {
     );
   });
 
-  testWidgets('设置面板按钮生效后自动关闭', (WidgetTester tester) async {
+  testWidgets('更多设置仅通过关闭按钮或遮罩退出', (WidgetTester tester) async {
+    // Catches options dismissing the persistent More surface.
     final UnifiedVideoController controller = await pumpPlayer(tester);
 
     await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
     await tester.pumpAndSettle();
-    expect(find.text('播放设置'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey<String>('speed-option-1.25')));
-    await tester.pumpAndSettle();
-    expect(controller.value.speed, 1.25);
-    expect(find.text('播放设置'), findsNothing);
-
-    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
-    await tester.pumpAndSettle();
-    expect(find.text('播放设置'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-panel')),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(const ValueKey<String>('fit-option-cover')));
     await tester.pumpAndSettle();
     expect(controller.value.fit, UnifiedVideoFit.cover);
-    expect(find.text('播放设置'), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('settings-panel')),
+      findsOneWidget,
+    );
+
+    await tester.tapAt(const Offset(1, 1));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('settings-panel')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('settings-close')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('settings-panel')), findsNothing);
   });
 
   testWidgets('失败状态显示错误和重试按钮', (WidgetTester tester) async {
+    final _FailOnceOpenTracker tracker = _FailOnceOpenTracker();
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'retry',
+      displayName: '重试测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.windows},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
     final UnifiedVideoController controller = UnifiedVideoController(
       registry: VideoKernelRegistry(
-        kernels: <RegisteredVideoKernel>[_createPlatformTestKernel()],
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(
+            descriptor: descriptor,
+            create: () => _FailOnceOpenVideoKernelAdapter(descriptor, tracker),
+          ),
+        ],
       ),
       platform: UnifiedVideoPlatform.windows,
       stateRefreshInterval: null,
@@ -2248,7 +2715,12 @@ void main() {
     );
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(body: UnifiedVideoPlayer(controller: controller)),
+        home: Scaffold(
+          body: UnifiedVideoPlayer(
+            controller: controller,
+            autoHideControlsDelay: const Duration(milliseconds: 100),
+          ),
+        ),
       ),
     );
     addTearDown(controller.dispose);
@@ -2257,7 +2729,22 @@ void main() {
       find.byKey(const ValueKey<String>('video-error-message')),
       findsOneWidget,
     );
+    final Finder retry = find.byKey(const ValueKey<String>('state-retry'));
+    expect(retry, findsOneWidget);
     expect(find.text('重试'), findsOneWidget);
+    expect(tester.getSize(retry).height, greaterThanOrEqualTo(44));
+    expect(find.byKey(const ValueKey<String>('play-pause')), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(_controlsOverlay(tester).opacity, 1);
+
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+    expect(tracker.attempts, 2);
+    expect(controller.value.lifecycle, UnifiedVideoLifecycle.ready);
+    expect(
+      find.byKey(const ValueKey<String>('video-error-message')),
+      findsNothing,
+    );
   });
 
   testWidgets('切换到失败内核后保留原播放画面和生命周期并提示错误', (WidgetTester tester) async {
@@ -2297,7 +2784,12 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('kernel-option-erika')));
+    final Finder failingKernel = find.byKey(
+      const ValueKey<String>('kernel-option-erika'),
+    );
+    await tester.ensureVisible(failingKernel);
+    await tester.pumpAndSettle();
+    await tester.tap(failingKernel);
     await tester.pumpAndSettle();
 
     expect(controller.value.lifecycle, UnifiedVideoLifecycle.playing);
@@ -2310,26 +2802,17 @@ void main() {
       find.byKey(const ValueKey<String>('video-error-message')),
       findsNothing,
     );
-    expect(find.text('切换目标播放器内核失败，已恢复原内核。'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-panel')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('kernel-switch-diagnostic')),
+      findsOneWidget,
+    );
+    expect(find.text('切换目标播放器内核失败，已恢复原内核。'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
-}
-
-RegisteredVideoKernel _createPlatformTestKernel() {
-  const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
-    id: 'video-player',
-    displayName: '平台测试内核',
-    supportedPlatforms: <UnifiedVideoPlatform>{
-      UnifiedVideoPlatform.android,
-      UnifiedVideoPlatform.ios,
-      UnifiedVideoPlatform.macos,
-    },
-    supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
-  );
-  return RegisteredVideoKernel(
-    descriptor: descriptor,
-    create: () => FakeVideoKernelAdapter(descriptor: descriptor),
-  );
 }
 
 AnimatedOpacity _controlsOverlay(WidgetTester tester) {
@@ -2348,6 +2831,44 @@ class _FailingOpenVideoKernelAdapter extends FakeVideoKernelAdapter {
     UnifiedVideoState state,
   ) async {
     throw StateError('模拟打开失败');
+  }
+}
+
+class _FailingSpeedVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _FailingSpeedVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  @override
+  Future<UnifiedVideoState> setSpeed(
+    double speed,
+    UnifiedVideoState state,
+  ) async {
+    if ((speed - 1.25).abs() < 0.001) {
+      throw StateError('模拟倍速应用失败');
+    }
+    return super.setSpeed(speed, state);
+  }
+}
+
+class _FailOnceOpenTracker {
+  int attempts = 0;
+}
+
+class _FailOnceOpenVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _FailOnceOpenVideoKernelAdapter(
+    VideoKernelDescriptor descriptor,
+    this.tracker,
+  ) : super(descriptor: descriptor);
+
+  final _FailOnceOpenTracker tracker;
+
+  @override
+  Future<UnifiedVideoState> open(VideoSource source, UnifiedVideoState state) {
+    tracker.attempts += 1;
+    if (tracker.attempts == 1) {
+      throw StateError('模拟首次打开失败');
+    }
+    return super.open(source, state);
   }
 }
 

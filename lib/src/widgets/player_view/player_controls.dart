@@ -155,6 +155,7 @@ class PlayerControls extends StatelessWidget {
                   if (metrics.showMore)
                     _ControlHitTarget.icon(
                       key: const ValueKey<String>('more-menu'),
+                      alternateKey: const ValueKey<String>('settings-menu'),
                       semanticLabel: '更多设置',
                       icon: Icons.more_horiz,
                       iconSize: metrics.iconSize,
@@ -194,6 +195,7 @@ class _ControlHitTarget extends StatelessWidget {
     required this.semanticLabel,
     required this.onPressed,
     required this.toggled,
+    required this.alternateKey,
     required this.child,
   });
 
@@ -204,6 +206,7 @@ class _ControlHitTarget extends StatelessWidget {
     required double iconSize,
     Color? color,
     bool? toggled,
+    Key? alternateKey,
     required VoidCallback? onPressed,
   }) {
     return _ControlHitTarget._(
@@ -211,6 +214,7 @@ class _ControlHitTarget extends StatelessWidget {
       semanticLabel: semanticLabel,
       onPressed: onPressed,
       toggled: toggled,
+      alternateKey: alternateKey,
       child: Icon(
         icon,
         size: iconSize,
@@ -234,6 +238,7 @@ class _ControlHitTarget extends StatelessWidget {
       semanticLabel: semanticLabel,
       onPressed: onPressed,
       toggled: null,
+      alternateKey: null,
       child: Text(
         label,
         maxLines: 1,
@@ -257,6 +262,7 @@ class _ControlHitTarget extends StatelessWidget {
   final String semanticLabel;
   final VoidCallback? onPressed;
   final bool? toggled;
+  final Key? alternateKey;
   final Widget child;
 
   static Color _foreground(VoidCallback? onPressed) =>
@@ -276,7 +282,11 @@ class _ControlHitTarget extends StatelessWidget {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: onPressed,
-          child: SizedBox.square(dimension: 44, child: Center(child: child)),
+          child: SizedBox.square(
+            key: alternateKey,
+            dimension: 44,
+            child: Center(child: child),
+          ),
         ),
       ),
     );
