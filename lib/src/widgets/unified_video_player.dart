@@ -7,6 +7,7 @@ import '../controller.dart';
 import '../kernel.dart';
 import '../models.dart';
 import 'player_view/player_controls.dart';
+import 'player_view/player_episode_panel.dart';
 import 'player_view/player_view_tokens.dart';
 
 class UnifiedVideoPlayer extends StatefulWidget {
@@ -120,7 +121,10 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     final Widget playerView = _UnifiedVideoPlayerView(
       key: _playerViewKey,
       controller: widget.controller,
-      hasEpisodes: widget.episodes.isNotEmpty,
+      episodes: widget.episodes,
+      activeEpisodeId: _activeEpisodeId,
+      openingEpisodeId: _openingEpisodeId,
+      onEpisodeSelected: _openEpisode,
       onPrevious: _previousEpisodeAction(),
       onNext: _nextEpisodeAction(),
       onSwitchContent: widget.onSwitchContent,
@@ -148,8 +152,10 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     }
     final VideoSource? source = widget.controller.value.source;
     if (!_sameSource(source, _lastObservedSource)) {
-      _lastObservedSource = source;
-      _syncActiveEpisodeFromSource();
+      if (_openingEpisodeId == null) {
+        _lastObservedSource = source;
+        _syncActiveEpisodeFromSource();
+      }
     }
     if (_fullscreenTransitioning) {
       return;
@@ -299,13 +305,14 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     if (targetIndex < 0 || targetIndex >= widget.episodes.length) {
       return null;
     }
-    return () =>
-        _ignorePlaybackError(() => _openEpisode(widget.episodes[targetIndex]));
+    return () => _ignorePlaybackError(() async {
+      await _openEpisode(widget.episodes[targetIndex]);
+    });
   }
 
-  Future<void> _openEpisode(VideoEpisode episode) async {
+  Future<bool> _openEpisode(VideoEpisode episode) async {
     if (_openingEpisodeId != null || episode.id == _activeEpisodeId) {
-      return;
+      return false;
     }
     final UnifiedVideoController openingController = widget.controller;
     final int openingGeneration = ++_episodeOperationGeneration;
@@ -315,10 +322,14 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       if (!mounted ||
           widget.controller != openingController ||
           _episodeOperationGeneration != openingGeneration) {
-        return;
+        return false;
       }
-      setState(() => _activeEpisodeId = episode.id);
+      setState(() {
+        _activeEpisodeId = episode.id;
+        _lastObservedSource = openingController.value.source;
+      });
       widget.onEpisodeChanged?.call(episode);
+      return true;
     } finally {
       if (mounted &&
           widget.controller == openingController &&
@@ -334,7 +345,10 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
   const _UnifiedVideoPlayerView({
     super.key,
     required this.controller,
-    required this.hasEpisodes,
+    required this.episodes,
+    required this.activeEpisodeId,
+    required this.openingEpisodeId,
+    required this.onEpisodeSelected,
     required this.onPrevious,
     required this.onNext,
     required this.onSwitchContent,
@@ -343,7 +357,10 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
   });
 
   final UnifiedVideoController controller;
-  final bool hasEpisodes;
+  final List<VideoEpisode> episodes;
+  final String? activeEpisodeId;
+  final String? openingEpisodeId;
+  final Future<bool> Function(VideoEpisode episode) onEpisodeSelected;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
   final VoidCallback? onSwitchContent;
@@ -355,19 +372,35 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
       _UnifiedVideoPlayerViewState();
 }
 
-class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
+class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
+    with SingleTickerProviderStateMixin {
   bool _controlsVisible = true;
+  bool _episodePanelVisible = false;
   bool _scrubbing = false;
   bool _danmakuEnabled = false;
   bool _mirrored = false;
   int _quarterTurns = 0;
   Timer? _hideControlsTimer;
   UnifiedVideoLifecycle? _lastLifecycle;
+  late bool _lastFullscreen;
+  late final AnimationController _episodePanelController;
+  late final Animation<double> _episodePanelAnimation;
 
   @override
   void initState() {
     super.initState();
     _lastLifecycle = widget.controller.value.lifecycle;
+    _lastFullscreen = widget.controller.value.fullscreen;
+    _episodePanelController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+      reverseDuration: const Duration(milliseconds: 260),
+    )..addStatusListener(_handleEpisodePanelAnimationStatus);
+    _episodePanelAnimation = CurvedAnimation(
+      parent: _episodePanelController,
+      curve: Curves.easeOutQuart,
+      reverseCurve: Curves.easeInQuart,
+    );
     widget.controller.addListener(_handlePlaybackStateChanged);
     _scheduleAutoHideIfNeeded();
   }
@@ -381,7 +414,11 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
       _controlsVisible = true;
       _scrubbing = false;
       _lastLifecycle = widget.controller.value.lifecycle;
+      _lastFullscreen = widget.controller.value.fullscreen;
+      _closeEpisodePanel();
       _scheduleAutoHideIfNeeded();
+    } else if (widget.episodes.isEmpty && oldWidget.episodes.isNotEmpty) {
+      _closeEpisodePanel();
     }
   }
 
@@ -389,7 +426,16 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
   void dispose() {
     widget.controller.removeListener(_handlePlaybackStateChanged);
     _hideControlsTimer?.cancel();
+    _episodePanelController
+      ..removeStatusListener(_handleEpisodePanelAnimationStatus)
+      ..dispose();
     super.dispose();
+  }
+
+  void _handleEpisodePanelAnimationStatus(AnimationStatus status) {
+    if (status == AnimationStatus.dismissed && mounted) {
+      setState(() {});
+    }
   }
 
   void _handlePlaybackStateChanged() {
@@ -400,6 +446,10 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
         state.lifecycle == UnifiedVideoLifecycle.ended &&
         previousLifecycle != UnifiedVideoLifecycle.ended;
     _lastLifecycle = state.lifecycle;
+    if (_lastFullscreen && !state.fullscreen) {
+      _closeEpisodePanel();
+    }
+    _lastFullscreen = state.fullscreen;
     if (reachedEnded && mounted && !_controlsVisible) {
       setState(() => _controlsVisible = true);
       _scheduleAutoHideIfNeeded();
@@ -442,6 +492,66 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
       return;
     }
     _hideControlsTimer = Timer(widget.autoHideControlsDelay, _hideControlsNow);
+  }
+
+  bool get _reduceMotion {
+    final bool platformReduceMotion = View.of(
+      context,
+    ).platformDispatcher.accessibilityFeatures.reduceMotion;
+    return MediaQuery.disableAnimationsOf(context) || platformReduceMotion;
+  }
+
+  void _configureEpisodePanelMotion() {
+    final Duration enter = Duration(milliseconds: _reduceMotion ? 200 : 400);
+    final Duration exit = Duration(milliseconds: _reduceMotion ? 200 : 260);
+    _episodePanelController
+      ..duration = enter
+      ..reverseDuration = exit;
+  }
+
+  void _toggleEpisodePanel() {
+    if (_episodePanelVisible) {
+      _closeEpisodePanel();
+    } else {
+      _openEpisodePanel();
+    }
+  }
+
+  void _openEpisodePanel() {
+    _hideControlsTimer?.cancel();
+    _configureEpisodePanelMotion();
+    setState(() => _episodePanelVisible = true);
+    _episodePanelController.forward();
+  }
+
+  void _closeEpisodePanel() {
+    if (!_episodePanelVisible && _episodePanelController.isDismissed) {
+      return;
+    }
+    _configureEpisodePanelMotion();
+    if (mounted) {
+      setState(() => _episodePanelVisible = false);
+    } else {
+      _episodePanelVisible = false;
+    }
+    _episodePanelController.reverse();
+    _scheduleAutoHideIfNeeded();
+  }
+
+  Future<void> _selectEpisode(VideoEpisode episode) async {
+    try {
+      final bool opened = await widget.onEpisodeSelected(episode);
+      if (opened && mounted) {
+        _closeEpisodePanel();
+      }
+    } catch (_) {
+      // The controller exposes the failed state; keep the picker available.
+    }
+  }
+
+  void _openContextSettings() {
+    _closeEpisodePanel();
+    _ignorePlaybackError(_openSettingsSheet);
   }
 
   void _startScrubbing() {
@@ -582,6 +692,11 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
                               ),
                             ),
                           ),
+                        if (metrics.showEpisodePicker &&
+                            widget.episodes.isNotEmpty &&
+                            (_episodePanelVisible ||
+                                !_episodePanelController.isDismissed))
+                          _buildEpisodePanel(metrics, constraints),
                         AnimatedOpacity(
                           key: const ValueKey<String>(
                             'player-controls-overlay',
@@ -604,7 +719,7 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
                                   child: PlayerControls(
                                     state: state,
                                     metrics: metrics,
-                                    hasEpisodes: widget.hasEpisodes,
+                                    hasEpisodes: widget.episodes.isNotEmpty,
                                     danmakuEnabled: _danmakuEnabled,
                                     onPrevious: widget.onPrevious,
                                     onPlayPause: () {
@@ -625,7 +740,7 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
                                     onNext: widget.onNext,
                                     onOpenEpisodes: () {
                                       _showControls();
-                                      widget.onSwitchContent?.call();
+                                      _toggleEpisodePanel();
                                     },
                                     onToggleDanmaku: () {
                                       _showControls();
@@ -636,14 +751,15 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
                                     },
                                     onOpenSpeed: () {
                                       _showControls();
-                                      _ignorePlaybackError(_openSettingsSheet);
+                                      _openContextSettings();
                                     },
                                     onOpenMore: () {
                                       _showControls();
-                                      _ignorePlaybackError(_openSettingsSheet);
+                                      _openContextSettings();
                                     },
                                     onToggleFullscreen: () {
                                       _showControls();
+                                      _closeEpisodePanel();
                                       _ignorePlaybackError(
                                         widget.onFullscreenPressed,
                                       );
@@ -673,6 +789,69 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
           },
         );
       },
+    );
+  }
+
+  Widget _buildEpisodePanel(
+    PlayerViewMetrics metrics,
+    BoxConstraints constraints,
+  ) {
+    final bool reducedMotion = _reduceMotion;
+    final Alignment transformAlignment = metrics.mode == PlayerViewMode.wide
+        ? Alignment.bottomRight
+        : Alignment.centerRight;
+    final Widget animatedPanel = AnimatedBuilder(
+      animation: _episodePanelAnimation,
+      builder: (BuildContext context, Widget? child) {
+        final double progress = _episodePanelAnimation.value;
+        final Offset offset = reducedMotion
+            ? Offset.zero
+            : metrics.mode == PlayerViewMode.wide
+            ? Offset(0, 12 * (1 - progress))
+            : Offset(24 * (1 - progress), 0);
+        return IgnorePointer(
+          ignoring: !_episodePanelVisible,
+          child: Opacity(
+            opacity: progress,
+            child: Transform.translate(
+              offset: offset,
+              child: Transform.scale(
+                scale: reducedMotion ? 1 : 0.98 + (0.02 * progress),
+                alignment: transformAlignment,
+                child: PlayerEpisodePanel(
+                  key: const ValueKey<String>('episode-panel'),
+                  episodes: widget.episodes,
+                  activeEpisodeId: widget.activeEpisodeId,
+                  mode: metrics.mode,
+                  openingEpisodeId: widget.openingEpisodeId,
+                  materialProgress: reducedMotion ? 1 : progress,
+                  onSelected: _selectEpisode,
+                  onClose: _closeEpisodePanel,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (metrics.mode == PlayerViewMode.wide) {
+      return Positioned(
+        right: 14,
+        bottom: 52,
+        width: 320,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 420),
+          child: animatedPanel,
+        ),
+      );
+    }
+    return Positioned(
+      top: 0,
+      right: 0,
+      bottom: 0,
+      width: math.min(360, constraints.maxWidth * 0.58),
+      child: animatedPanel,
     );
   }
 

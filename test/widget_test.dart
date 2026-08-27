@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' show PointerDeviceKind, Tristate;
 
 import 'package:flutter/material.dart';
@@ -601,6 +602,432 @@ void main() {
 
     expect(legacyNextCalls, 1);
     expect(controller.value.source, isNull);
+  });
+
+  testWidgets('选集面板显示外部名称并点击后直接播放', (WidgetTester tester) async {
+    // Catches the picker delegating to legacy callbacks instead of opening the episode.
+    final List<VideoEpisode> episodes = testEpisodes();
+    final List<String> changed = <String>[];
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      episodes: episodes,
+      initialEpisodeId: 'e1',
+      onEpisodeChanged: (VideoEpisode episode) => changed.add(episode.id),
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+    expect(find.text('第 2 集'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('episode-option-e2')));
+    await tester.pumpAndSettle();
+
+    expect(controller.value.source?.uri, episodes[1].source.uri);
+    expect(changed, <String>['e2']);
+    expect(find.byKey(const ValueKey<String>('episode-panel')), findsNothing);
+  });
+
+  testWidgets('选集打开失败不改变高亮且不通知外部', (WidgetTester tester) async {
+    // Catches the controller's opening source being committed as selection before success.
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'selective-fail',
+      displayName: '选集失败测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.windows},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _SelectiveFailVideoKernelAdapter adapter =
+        _SelectiveFailVideoKernelAdapter(descriptor);
+    final UnifiedVideoController controller = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(descriptor: descriptor, create: () => adapter),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.windows,
+      stateRefreshInterval: null,
+    );
+    final List<VideoEpisode> episodes = testEpisodes();
+    final List<String> changed = <String>[];
+    await controller.open(episodes.first.source);
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: UnifiedVideoPlayer(
+            controller: controller,
+            episodes: episodes,
+            initialEpisodeId: 'e1',
+            onEpisodeChanged: (VideoEpisode episode) => changed.add(episode.id),
+          ),
+        ),
+      ),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('episode-option-e2')));
+    await tester.pumpAndSettle();
+
+    expect(changed, isEmpty);
+    expect(
+      find.byKey(const ValueKey<String>('episode-option-e1-selected')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('episode-panel')), findsOneWidget);
+    expect(controller.value.lifecycle, UnifiedVideoLifecycle.failed);
+  });
+
+  testWidgets('外部直接换源后选集高亮同步到匹配条目', (WidgetTester tester) async {
+    // Catches external controller opens leaving the picker on stale selection.
+    final List<VideoEpisode> episodes = testEpisodes();
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      episodes: episodes,
+      initialEpisodeId: 'e1',
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    await controller.open(episodes[1].source);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('episode-option-e2-selected')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('选集列表替换 ID 后按当前播放源重新匹配', (WidgetTester tester) async {
+    // Catches list replacement clearing selection instead of rematching source identity.
+    final List<VideoEpisode> episodes = testEpisodes();
+    final UnifiedVideoController controller = createFakeController();
+    addTearDown(controller.dispose);
+    await controller.open(episodes[1].source);
+    List<VideoEpisode> visibleEpisodes = episodes;
+    late StateSetter updateHost;
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setState) {
+              updateHost = setState;
+              return UnifiedVideoPlayer(
+                controller: controller,
+                episodes: visibleEpisodes,
+                initialEpisodeId: 'e2',
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    updateHost(() {
+      visibleEpisodes = <VideoEpisode>[
+        episodes.first,
+        VideoEpisode(
+          id: 'e2-renamed',
+          title: '第 2 集（新 ID）',
+          source: episodes[1].source,
+        ),
+        episodes.last,
+      ];
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('episode-option-e2-renamed-selected')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('重复选择当前集仅关闭面板且不重新打开或回调', (WidgetTester tester) async {
+    // Catches current-row taps performing a redundant controller open.
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'counting-episode-picker',
+      displayName: '选集计数测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.windows},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _CountingOpenVideoKernelAdapter adapter =
+        _CountingOpenVideoKernelAdapter(descriptor);
+    final UnifiedVideoController controller = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(descriptor: descriptor, create: () => adapter),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.windows,
+      stateRefreshInterval: null,
+    );
+    final List<VideoEpisode> episodes = testEpisodes();
+    final List<String> changed = <String>[];
+    await controller.open(episodes.first.source);
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: UnifiedVideoPlayer(
+            controller: controller,
+            episodes: episodes,
+            initialEpisodeId: 'e1',
+            onEpisodeChanged: (VideoEpisode episode) => changed.add(episode.id),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('episode-option-e1')));
+    await tester.pumpAndSettle();
+
+    expect(adapter.openCount, 1);
+    expect(changed, isEmpty);
+    expect(find.byKey(const ValueKey<String>('episode-panel')), findsNothing);
+  });
+
+  testWidgets('Expanded 与 Wide 使用批准的选集面板位置和尺寸', (WidgetTester tester) async {
+    // Catches mode placement drifting from edge-sheet and anchored-popover rules.
+    await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      viewSize: const Size(852, 393),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+    final Rect expandedFrame = tester.getRect(
+      find.byKey(const ValueKey<String>('player-frame')),
+    );
+    final Rect expandedPanel = tester.getRect(
+      find.byKey(const ValueKey<String>('episode-panel')),
+    );
+    expect(expandedPanel.right, expandedFrame.right);
+    expect(expandedPanel.top, expandedFrame.top);
+    expect(expandedPanel.bottom, expandedFrame.bottom);
+    expect(expandedPanel.width, math.min(360, expandedFrame.width * 0.58));
+
+    await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+    final Rect wideFrame = tester.getRect(
+      find.byKey(const ValueKey<String>('player-frame')),
+    );
+    final Rect widePanel = tester.getRect(
+      find.byKey(const ValueKey<String>('episode-panel')),
+    );
+    expect(wideFrame.right - widePanel.right, 14);
+    expect(wideFrame.bottom - widePanel.bottom, 52);
+    expect(widePanel.width, 320);
+    expect(widePanel.height, lessThanOrEqualTo(420));
+  });
+
+  testWidgets('选集使用单一玻璃表面发丝分隔和蓝色勾选', (WidgetTester tester) async {
+    // Catches fragmented per-row cards or color-only current selection returning.
+    final SemanticsHandle semantics = tester.ensureSemantics();
+    await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+
+    final Finder panel = find.byKey(const ValueKey<String>('episode-panel'));
+    final Finder selected = find.byKey(
+      const ValueKey<String>('episode-option-e1-selected'),
+    );
+    expect(
+      find.descendant(of: panel, matching: find.byType(BackdropFilter)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: panel, matching: find.byType(Divider)),
+      findsNWidgets(2),
+    );
+    expect(
+      find.descendant(of: panel, matching: find.byType(Card)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: panel, matching: find.byType(Chip)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('episode-option-e1')),
+        matching: selected,
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: selected, matching: find.byIcon(Icons.check_rounded)),
+      findsOneWidget,
+    );
+    final Text selectedTitle = tester.widget<Text>(
+      find.descendant(of: selected, matching: find.text('第 1 集')),
+    );
+    expect(selectedTitle.style?.color, const Color(0xFF7EC3FF));
+    expect(
+      tester.getSemantics(selected).flagsCollection.isSelected,
+      Tristate.isTrue,
+    );
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey<String>('episode-option-e2')))
+          .height,
+      greaterThanOrEqualTo(44),
+    );
+    for (final String id in <String>['e1', 'e2', 'e3']) {
+      expect(
+        find.descendant(
+          of: find.byKey(ValueKey<String>('episode-option-$id')),
+          matching: find.byType(DecoratedBox),
+        ),
+        findsNothing,
+      );
+    }
+    semantics.dispose();
+  });
+
+  testWidgets('降低动态效果时面板只淡入且高对比时使用不透明材质', (WidgetTester tester) async {
+    // Catches accessibility preferences retaining travel or translucent blur.
+    final UnifiedVideoController controller = createFakeController();
+    addTearDown(controller.dispose);
+    await controller.open(testEpisodes().first.source);
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (BuildContext context, Widget? child) {
+          return MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(disableAnimations: true, highContrast: true),
+            child: child!,
+          );
+        },
+        home: Scaffold(
+          body: UnifiedVideoPlayer(
+            controller: controller,
+            episodes: testEpisodes(),
+            initialEpisodeId: 'e1',
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final Finder panel = find.byKey(const ValueKey<String>('episode-panel'));
+    final Rect frameRect = tester.getRect(
+      find.byKey(const ValueKey<String>('player-frame')),
+    );
+    expect(tester.getRect(panel).right, frameRect.right);
+    expect(
+      find.descendant(of: panel, matching: find.byType(BackdropFilter)),
+      findsNothing,
+    );
+    final DecoratedBox surface = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey<String>('episode-panel-surface')),
+    );
+    expect(
+      (surface.decoration as BoxDecoration).color,
+      const Color(0xFF1E1E22),
+    );
+
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const ValueKey<String>('episode-panel')), findsOneWidget);
+  });
+
+  testWidgets('选集进入动画中仍可关闭并可切换更多浮层', (WidgetTester tester) async {
+    // Catches transition state locking the trigger or another contextual overlay.
+    await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('episode-panel')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('episode-panel')), findsNothing);
+    expect(find.text('播放设置'), findsOneWidget);
+  });
+
+  testWidgets('选集进入动画中仍可退出全屏', (WidgetTester tester) async {
+    // Catches a full-height episode sheet intercepting the fullscreen exit control.
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      platform: UnifiedVideoPlatform.unknown,
+      viewSize: const Size(852, 393),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));
+    await tester.pumpAndSettle();
+    expect(controller.value.fullscreen, isTrue);
+
+    await tester.tapAt(
+      tester.getCenter(find.byKey(const ValueKey<String>('player-frame'))),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const ValueKey<String>('episode-panel')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('fullscreen')).hitTestable(),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey<String>('episode-panel')).hitTestable(),
+      findsNothing,
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.value.fullscreen, isFalse);
+    expect(find.byKey(const ValueKey<String>('episode-panel')), findsNothing);
   });
 
   testWidgets('默认播放器显示必需控件和 fake 播放画面', (WidgetTester tester) async {
@@ -1768,6 +2195,19 @@ class _CountingOpenVideoKernelAdapter extends FakeVideoKernelAdapter {
   @override
   Future<UnifiedVideoState> open(VideoSource source, UnifiedVideoState state) {
     openCount += 1;
+    return super.open(source, state);
+  }
+}
+
+class _SelectiveFailVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _SelectiveFailVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  @override
+  Future<UnifiedVideoState> open(VideoSource source, UnifiedVideoState state) {
+    if (source.uri.path.endsWith('e2.mp4')) {
+      throw StateError('模拟选集打开失败');
+    }
     return super.open(source, state);
   }
 }
