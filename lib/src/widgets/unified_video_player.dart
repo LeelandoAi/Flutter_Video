@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../controller.dart';
 import '../kernel.dart';
 import '../models.dart';
+import 'player_view/player_controls.dart';
+import 'player_view/player_view_tokens.dart';
 
 class UnifiedVideoPlayer extends StatefulWidget {
   const UnifiedVideoPlayer({
@@ -118,6 +120,7 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     final Widget playerView = _UnifiedVideoPlayerView(
       key: _playerViewKey,
       controller: widget.controller,
+      hasEpisodes: widget.episodes.isNotEmpty,
       onPrevious: _previousEpisodeAction(),
       onNext: _nextEpisodeAction(),
       onSwitchContent: widget.onSwitchContent,
@@ -331,6 +334,7 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
   const _UnifiedVideoPlayerView({
     super.key,
     required this.controller,
+    required this.hasEpisodes,
     required this.onPrevious,
     required this.onNext,
     required this.onSwitchContent,
@@ -339,6 +343,7 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
   });
 
   final UnifiedVideoController controller;
+  final bool hasEpisodes;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
   final VoidCallback? onSwitchContent;
@@ -476,170 +481,195 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
     return ValueListenableBuilder<UnifiedVideoState>(
       valueListenable: widget.controller,
       builder: (BuildContext context, UnifiedVideoState state, Widget? child) {
-        final bool controlsShown = _controlsVisible || !_canAutoHide(state);
-        final Widget player = Listener(
-          behavior: HitTestBehavior.opaque,
-          onPointerDown: (_) => _showControls(),
-          onPointerMove: (_) => _showControls(),
-          onPointerSignal: (_) => _showControls(),
-          child: DecoratedBox(
-            decoration: const BoxDecoration(color: Colors.black),
-            child: Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                Transform.rotate(
-                  angle: _quarterTurns * math.pi / 2,
-                  child: Transform(
-                    alignment: Alignment.center,
-                    transform: Matrix4.diagonal3Values(
-                      _mirrored ? -1.0 : 1.0,
-                      1,
-                      1,
+        return LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final bool controlsShown = _controlsVisible || !_canAutoHide(state);
+            final PlayerViewMetrics metrics = PlayerViewMetrics.resolve(
+              platform: widget.controller.platform,
+              fullscreen: state.fullscreen,
+              orientation: MediaQuery.orientationOf(context),
+              width: constraints.maxWidth,
+              viewPaddingBottom: MediaQuery.viewPaddingOf(context).bottom,
+            );
+            return Listener(
+              key: const ValueKey<String>('player-frame'),
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: (_) => _showControls(),
+              onPointerMove: (_) => _showControls(),
+              onPointerSignal: (_) => _showControls(),
+              child: DecoratedBox(
+                decoration: const BoxDecoration(color: Colors.black),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[
+                    Transform.rotate(
+                      angle: _quarterTurns * math.pi / 2,
+                      child: Transform(
+                        alignment: Alignment.center,
+                        transform: Matrix4.diagonal3Values(
+                          _mirrored ? -1.0 : 1.0,
+                          1,
+                          1,
+                        ),
+                        child: _VideoSurface(
+                          controller: widget.controller,
+                          state: state,
+                        ),
+                      ),
                     ),
-                    child: _VideoSurface(
+                    if (_nightMode)
+                      Positioned.fill(
+                        child: ColoredBox(
+                          color: Colors.black.withValues(alpha: 0.18),
+                        ),
+                      ),
+                    Positioned.fill(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _toggleControls,
+                      ),
+                    ),
+                    _StateOverlay(
                       controller: widget.controller,
                       state: state,
+                      onRetry: _retryCurrentSource,
                     ),
-                  ),
-                ),
-                if (_nightMode)
-                  Positioned.fill(
-                    child: ColoredBox(
-                      color: Colors.black.withValues(alpha: 0.18),
-                    ),
-                  ),
-                Positioned.fill(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _toggleControls,
-                  ),
-                ),
-                _StateOverlay(
-                  controller: widget.controller,
-                  state: state,
-                  onRetry: _retryCurrentSource,
-                ),
-                if (state.lastKernelSwitchError != null &&
-                    state.lifecycle != UnifiedVideoLifecycle.failed)
-                  Positioned(
-                    left: 20,
-                    right: 20,
-                    top: 18,
-                    child: IgnorePointer(
-                      child: Semantics(
-                        liveRegion: true,
-                        child: DecoratedBox(
-                          key: const ValueKey<String>(
-                            'kernel-switch-error-message',
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.72),
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.16),
-                            ),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            child: Text(
-                              state.lastKernelSwitchError!.message,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
+                    if (state.lastKernelSwitchError != null &&
+                        state.lifecycle != UnifiedVideoLifecycle.failed)
+                      Positioned(
+                        left: 20,
+                        right: 20,
+                        top: 18,
+                        child: IgnorePointer(
+                          child: Semantics(
+                            liveRegion: true,
+                            child: DecoratedBox(
+                              key: const ValueKey<String>(
+                                'kernel-switch-error-message',
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.72),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.16),
+                                ),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                child: Text(
+                                  state.lastKernelSwitchError!.message,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
+                    AnimatedOpacity(
+                      key: const ValueKey<String>('player-controls-overlay'),
+                      opacity: controlsShown ? 1 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      child: IgnorePointer(
+                        ignoring: !controlsShown,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: <Widget>[
+                            if (metrics.mode != PlayerViewMode.compact)
+                              _PlayerTopBar(
+                                controller: widget.controller,
+                                state: state,
+                                favorite: _favorite,
+                                nightMode: _nightMode,
+                                onBackPressed: widget.onFullscreenPressed,
+                                onToggleFavorite: () {
+                                  _showControls();
+                                  setState(() => _favorite = !_favorite);
+                                },
+                                onToggleNightMode: () {
+                                  _showControls();
+                                  setState(() => _nightMode = !_nightMode);
+                                },
+                                onOpenSettings: () {
+                                  _showControls();
+                                  _ignorePlaybackError(_openSettingsSheet);
+                                },
+                              ),
+                            Positioned.fill(
+                              child: PlayerControls(
+                                state: state,
+                                metrics: metrics,
+                                hasEpisodes: widget.hasEpisodes,
+                                onPrevious: widget.onPrevious,
+                                onPlayPause: () {
+                                  _showControls();
+                                  if (state.isPlaying) {
+                                    _ignorePlaybackError(
+                                      widget.controller.pause,
+                                    );
+                                  } else {
+                                    _ignorePlaybackError(
+                                      () => _playOrReplay(
+                                        widget.controller,
+                                        state,
+                                      ),
+                                    );
+                                  }
+                                },
+                                onNext: widget.onNext,
+                                onOpenEpisodes: () {
+                                  _showControls();
+                                  widget.onSwitchContent?.call();
+                                },
+                                onToggleDanmaku: () {
+                                  _showControls();
+                                  setState(
+                                    () => _danmakuEnabled = !_danmakuEnabled,
+                                  );
+                                },
+                                onOpenSpeed: () {
+                                  _showControls();
+                                  _ignorePlaybackError(_openSettingsSheet);
+                                },
+                                onOpenMore: () {
+                                  _showControls();
+                                  _ignorePlaybackError(_openSettingsSheet);
+                                },
+                                onToggleFullscreen: () {
+                                  _showControls();
+                                  _ignorePlaybackError(
+                                    widget.onFullscreenPressed,
+                                  );
+                                },
+                                onSeekStart: _startScrubbing,
+                                onSeek: (double value) {
+                                  _showControls();
+                                  _ignorePlaybackError(
+                                    () => widget.controller.seek(
+                                      Duration(milliseconds: value.round()),
+                                    ),
+                                  );
+                                },
+                                onSeekEnd: _endScrubbing,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                AnimatedOpacity(
-                  key: const ValueKey<String>('player-controls-overlay'),
-                  opacity: controlsShown ? 1 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOut,
-                  child: IgnorePointer(
-                    ignoring: !controlsShown,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: <Widget>[
-                        _PlayerTopBar(
-                          controller: widget.controller,
-                          state: state,
-                          favorite: _favorite,
-                          nightMode: _nightMode,
-                          onBackPressed: widget.onFullscreenPressed,
-                          onToggleFavorite: () {
-                            _showControls();
-                            setState(() => _favorite = !_favorite);
-                          },
-                          onToggleNightMode: () {
-                            _showControls();
-                            setState(() => _nightMode = !_nightMode);
-                          },
-                          onOpenSettings: () {
-                            _showControls();
-                            _openSettingsSheet();
-                          },
-                        ),
-                        _CenterTransportLayer(
-                          controller: widget.controller,
-                          state: state,
-                          onPrevious: widget.onPrevious,
-                          onNext: widget.onNext,
-                          danmakuEnabled: _danmakuEnabled,
-                          onToggleDanmaku: () {
-                            _showControls();
-                            setState(() => _danmakuEnabled = !_danmakuEnabled);
-                          },
-                          onRotateRight: () {
-                            _showControls();
-                            setState(
-                              () => _quarterTurns = (_quarterTurns + 1) % 4,
-                            );
-                          },
-                          onUserInteraction: _showControls,
-                        ),
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: _PlayerBottomControls(
-                            controller: widget.controller,
-                            state: state,
-                            onPrevious: widget.onPrevious,
-                            onNext: widget.onNext,
-                            onSwitchContent: widget.onSwitchContent,
-                            onFullscreenPressed: widget.onFullscreenPressed,
-                            onOpenSettings: _openSettingsSheet,
-                            onToggleMirror: () {
-                              _showControls();
-                              setState(() => _mirrored = !_mirrored);
-                            },
-                            onToggleNightMode: () {
-                              _showControls();
-                              setState(() => _nightMode = !_nightMode);
-                            },
-                            mirrored: _mirrored,
-                            nightMode: _nightMode,
-                            onUserInteraction: _showControls,
-                            onScrubStart: _startScrubbing,
-                            onScrubEnd: _endScrubbing,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
-        return player;
       },
     );
   }
@@ -1017,439 +1047,6 @@ class _VideoTitleBlock extends StatelessWidget {
   }
 }
 
-class _CenterTransportLayer extends StatelessWidget {
-  const _CenterTransportLayer({
-    required this.controller,
-    required this.state,
-    required this.onPrevious,
-    required this.onNext,
-    required this.danmakuEnabled,
-    required this.onToggleDanmaku,
-    required this.onRotateRight,
-    required this.onUserInteraction,
-  });
-
-  final UnifiedVideoController controller;
-  final UnifiedVideoState state;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onNext;
-  final bool danmakuEnabled;
-  final VoidCallback onToggleDanmaku;
-  final VoidCallback onRotateRight;
-  final VoidCallback onUserInteraction;
-
-  @override
-  Widget build(BuildContext context) {
-    if (state.lifecycle == UnifiedVideoLifecycle.opening ||
-        state.lifecycle == UnifiedVideoLifecycle.switchingKernel ||
-        state.lifecycle == UnifiedVideoLifecycle.buffering ||
-        state.lifecycle == UnifiedVideoLifecycle.failed ||
-        state.lifecycle == UnifiedVideoLifecycle.disposed) {
-      return const SizedBox.shrink();
-    }
-
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final bool compact = constraints.maxWidth < 360;
-        final bool embedded = constraints.maxWidth < 430;
-        return Stack(
-          fit: StackFit.expand,
-          children: <Widget>[
-            Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  _TransportIconButton(
-                    key: const ValueKey<String>('previous-episode'),
-                    onPressed: onPrevious == null
-                        ? null
-                        : () {
-                            onUserInteraction();
-                            onPrevious!();
-                          },
-                    tooltip: '上一集',
-                    icon: Icons.skip_previous,
-                    size: compact ? 44 : 52,
-                  ),
-                  SizedBox(width: compact ? 14 : 20),
-                  _TransportIconButton(
-                    key: const ValueKey<String>('play-pause'),
-                    onPressed: () {
-                      onUserInteraction();
-                      if (state.isPlaying) {
-                        _ignorePlaybackError(controller.pause);
-                      } else {
-                        _ignorePlaybackError(
-                          () => _playOrReplay(controller, state),
-                        );
-                      }
-                    },
-                    tooltip: state.isPlaying ? '暂停' : '播放',
-                    icon: state.isPlaying ? Icons.pause : Icons.play_arrow,
-                    size: compact ? 54 : 64,
-                    iconSize: compact ? 30 : 36,
-                  ),
-                  SizedBox(width: compact ? 14 : 20),
-                  _TransportIconButton(
-                    key: const ValueKey<String>('next-episode'),
-                    onPressed: onNext == null
-                        ? null
-                        : () {
-                            onUserInteraction();
-                            onNext!();
-                          },
-                    tooltip: '下一集',
-                    icon: Icons.skip_next,
-                    size: compact ? 44 : 52,
-                  ),
-                ],
-              ),
-            ),
-            if (!embedded)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: _TopIconButton(
-                    key: const ValueKey<String>('danmaku-toggle'),
-                    onPressed: () {
-                      onUserInteraction();
-                      onToggleDanmaku();
-                    },
-                    tooltip: danmakuEnabled ? '关闭弹幕' : '打开弹幕',
-                    icon: danmakuEnabled
-                        ? Icons.chat_bubble
-                        : Icons.chat_bubble_outline,
-                  ),
-                ),
-              ),
-            if (!embedded)
-              Align(
-                alignment: Alignment.centerRight,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      _TopIconButton(
-                        key: const ValueKey<String>('rotate'),
-                        onPressed: () {
-                          onUserInteraction();
-                          onRotateRight();
-                        },
-                        tooltip: '旋转',
-                        icon: Icons.screen_rotation_alt_outlined,
-                      ),
-                      _TopIconButton(
-                        key: const ValueKey<String>('pip'),
-                        onPressed: null,
-                        tooltip: '小窗播放',
-                        icon: Icons.picture_in_picture_alt,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _PlayerBottomControls extends StatelessWidget {
-  const _PlayerBottomControls({
-    required this.controller,
-    required this.state,
-    required this.onPrevious,
-    required this.onNext,
-    required this.onSwitchContent,
-    required this.onFullscreenPressed,
-    required this.onOpenSettings,
-    required this.onToggleMirror,
-    required this.onToggleNightMode,
-    required this.mirrored,
-    required this.nightMode,
-    required this.onUserInteraction,
-    required this.onScrubStart,
-    required this.onScrubEnd,
-  });
-
-  final UnifiedVideoController controller;
-  final UnifiedVideoState state;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onNext;
-  final VoidCallback? onSwitchContent;
-  final Future<void> Function() onFullscreenPressed;
-  final Future<void> Function() onOpenSettings;
-  final VoidCallback onToggleMirror;
-  final VoidCallback onToggleNightMode;
-  final bool mirrored;
-  final bool nightMode;
-  final VoidCallback onUserInteraction;
-  final VoidCallback onScrubStart;
-  final VoidCallback onScrubEnd;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final bool embedded = constraints.maxWidth < 430;
-        final int durationMs = state.duration.inMilliseconds;
-        final int positionMs = state.position.inMilliseconds.clamp(
-          0,
-          durationMs,
-        );
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: <Color>[
-                Colors.black.withValues(alpha: embedded ? 0 : 0.2),
-                Colors.black.withValues(alpha: embedded ? 0.56 : 0.5),
-              ],
-            ),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: embedded
-                  ? const EdgeInsets.fromLTRB(8, 10, 4, 4)
-                  : const EdgeInsets.fromLTRB(16, 14, 4, 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  if (!embedded) ...<Widget>[
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: <Widget>[
-                          _ControlTextButton(
-                            key: const ValueKey<String>('action-play-pause'),
-                            label: state.isPlaying ? '暂停' : '播放',
-                            selected: state.isPlaying,
-                            onPressed: () {
-                              onUserInteraction();
-                              if (state.isPlaying) {
-                                _ignorePlaybackError(controller.pause);
-                              } else {
-                                _ignorePlaybackError(
-                                  () => _playOrReplay(controller, state),
-                                );
-                              }
-                            },
-                          ),
-                          _ControlTextButton(
-                            key: const ValueKey<String>('next-episode-action'),
-                            label: '下一集',
-                            onPressed: onNext == null
-                                ? null
-                                : () {
-                                    onUserInteraction();
-                                    onNext!();
-                                  },
-                          ),
-                          _ControlTextButton(
-                            key: const ValueKey<String>(
-                              'previous-episode-action',
-                            ),
-                            label: '上一集',
-                            onPressed: onPrevious == null
-                                ? null
-                                : () {
-                                    onUserInteraction();
-                                    onPrevious!();
-                                  },
-                          ),
-                          _ControlTextButton(
-                            key: const ValueKey<String>('switch-content'),
-                            label: '选集',
-                            onPressed: onSwitchContent == null
-                                ? null
-                                : () {
-                                    onUserInteraction();
-                                    onSwitchContent!();
-                                  },
-                          ),
-                          _ControlTextButton(
-                            key: const ValueKey<String>('change-source'),
-                            label: '换源',
-                            onPressed: onSwitchContent == null
-                                ? null
-                                : () {
-                                    onUserInteraction();
-                                    onSwitchContent!();
-                                  },
-                          ),
-                          _KernelActionMenu(
-                            controller: controller,
-                            state: state,
-                            onUserInteraction: onUserInteraction,
-                          ),
-                          _SpeedActionMenu(
-                            controller: controller,
-                            state: state,
-                            onUserInteraction: onUserInteraction,
-                          ),
-                          _FitActionMenu(
-                            controller: controller,
-                            state: state,
-                            onUserInteraction: onUserInteraction,
-                          ),
-                          _ControlTextButton(
-                            key: const ValueKey<String>('mirror-action'),
-                            label: '镜像',
-                            selected: mirrored,
-                            onPressed: () {
-                              onUserInteraction();
-                              onToggleMirror();
-                            },
-                          ),
-                          _ControlTextButton(
-                            key: const ValueKey<String>('night-action'),
-                            label: '夜间',
-                            selected: nightMode,
-                            onPressed: () {
-                              onUserInteraction();
-                              onToggleNightMode();
-                            },
-                          ),
-                          _ControlTextButton(
-                            key: const ValueKey<String>('advanced-settings'),
-                            label: '设置',
-                            onPressed: () {
-                              onUserInteraction();
-                              _ignorePlaybackError(onOpenSettings);
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  Row(
-                    children: <Widget>[
-                      _TimeLabel(duration: state.position, compact: embedded),
-                      SizedBox(width: embedded ? 4 : 8),
-                      Expanded(
-                        child: SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: embedded ? 3 : 4,
-                            thumbShape: RoundSliderThumbShape(
-                              enabledThumbRadius: embedded ? 5 : 6,
-                            ),
-                            overlayShape: RoundSliderOverlayShape(
-                              overlayRadius: embedded ? 10 : 14,
-                            ),
-                            activeTrackColor: const Color(0xFFFFD700),
-                            inactiveTrackColor: Colors.white.withValues(
-                              alpha: 0.4,
-                            ),
-                            thumbColor: Colors.white,
-                            overlayColor: const Color(
-                              0xFFFFD700,
-                            ).withValues(alpha: 0.18),
-                          ),
-                          child: Slider(
-                            key: const ValueKey<String>('video-progress'),
-                            value: positionMs.toDouble(),
-                            max: durationMs <= 0 ? 1 : durationMs.toDouble(),
-                            onChangeStart: durationMs <= 0
-                                ? null
-                                : (_) {
-                                    onScrubStart();
-                                  },
-                            onChangeEnd: durationMs <= 0
-                                ? null
-                                : (_) {
-                                    onScrubEnd();
-                                  },
-                            onChanged: durationMs <= 0
-                                ? null
-                                : (double value) {
-                                    onUserInteraction();
-                                    _ignorePlaybackError(
-                                      () => controller.seek(
-                                        Duration(milliseconds: value.round()),
-                                      ),
-                                    );
-                                  },
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: embedded ? 4 : 8),
-                      _TimeLabel(duration: state.duration, compact: embedded),
-                      _TopIconButton(
-                        key: const ValueKey<String>('fullscreen'),
-                        onPressed: () => _ignorePlaybackError(() async {
-                          onUserInteraction();
-                          await onFullscreenPressed();
-                        }),
-                        tooltip: state.fullscreen ? '退出全屏' : '全屏',
-                        icon: state.fullscreen
-                            ? Icons.fullscreen_exit
-                            : Icons.fullscreen,
-                        compact: embedded,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _TransportIconButton extends StatelessWidget {
-  const _TransportIconButton({
-    super.key,
-    required this.onPressed,
-    required this.tooltip,
-    required this.icon,
-    required this.size,
-    this.iconSize = 28,
-  });
-
-  final VoidCallback? onPressed;
-  final String tooltip;
-  final IconData icon;
-  final double size;
-  final double iconSize;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: size,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: onPressed == null ? 0.24 : 0.5),
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-        ),
-        child: IconButton(
-          padding: EdgeInsets.zero,
-          visualDensity: VisualDensity.compact,
-          onPressed: onPressed,
-          tooltip: tooltip,
-          iconSize: iconSize,
-          icon: Icon(
-            icon,
-            color: onPressed == null
-                ? Colors.white.withValues(alpha: 0.38)
-                : Colors.white,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _TopIconButton extends StatelessWidget {
   const _TopIconButton({
     super.key,
@@ -1483,223 +1080,6 @@ class _TopIconButton extends StatelessWidget {
           color: onPressed == null
               ? Colors.white.withValues(alpha: 0.34)
               : Colors.white,
-        ),
-      ),
-    );
-  }
-}
-
-class _ControlTextButton extends StatelessWidget {
-  const _ControlTextButton({
-    super.key,
-    required this.label,
-    required this.onPressed,
-    this.selected = false,
-  });
-
-  final String label;
-  final VoidCallback? onPressed;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    final Color color = selected
-        ? const Color(0xFFFFD700)
-        : onPressed == null
-        ? Colors.white.withValues(alpha: 0.36)
-        : Colors.white;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(4),
-        onTap: onPressed,
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: color,
-              fontSize: 14,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _KernelActionMenu extends StatelessWidget {
-  const _KernelActionMenu({
-    required this.controller,
-    required this.state,
-    required this.onUserInteraction,
-  });
-
-  final UnifiedVideoController controller;
-  final UnifiedVideoState state;
-  final VoidCallback onUserInteraction;
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      key: const ValueKey<String>('kernel-menu'),
-      tooltip: '播放器内核',
-      color: const Color(0xFF181818),
-      onOpened: onUserInteraction,
-      onSelected: (String kernelId) {
-        onUserInteraction();
-        _ignorePlaybackError(() => controller.switchKernel(kernelId));
-      },
-      itemBuilder: (BuildContext context) {
-        return controller.compatibleKernels
-            .map((VideoKernelDescriptor item) {
-              return PopupMenuItem<String>(
-                key: ValueKey<String>('kernel-option-${item.id}'),
-                value: item.id,
-                child: _MenuText(
-                  item.displayName,
-                  selected: item.id == state.activeKernelId,
-                ),
-              );
-            })
-            .toList(growable: false);
-      },
-      child: _ControlTextButton(
-        label: _activeKernelShortName(controller, state),
-        selected: true,
-        onPressed: null,
-      ),
-    );
-  }
-}
-
-class _SpeedActionMenu extends StatelessWidget {
-  const _SpeedActionMenu({
-    required this.controller,
-    required this.state,
-    required this.onUserInteraction,
-  });
-
-  final UnifiedVideoController controller;
-  final UnifiedVideoState state;
-  final VoidCallback onUserInteraction;
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<double>(
-      key: const ValueKey<String>('speed-menu'),
-      tooltip: '播放倍速',
-      color: const Color(0xFF181818),
-      onOpened: onUserInteraction,
-      onSelected: (double speed) {
-        onUserInteraction();
-        _ignorePlaybackError(() => controller.setSpeed(speed));
-      },
-      itemBuilder: (BuildContext context) {
-        return unifiedVideoSpeedPresets
-            .map((double speed) {
-              return PopupMenuItem<double>(
-                key: ValueKey<String>('speed-option-$speed'),
-                value: speed,
-                child: _MenuText(
-                  '${speed}x',
-                  selected: (state.speed - speed).abs() < 0.001,
-                ),
-              );
-            })
-            .toList(growable: false);
-      },
-      child: _ControlTextButton(
-        label: '${state.speed}x',
-        selected: true,
-        onPressed: null,
-      ),
-    );
-  }
-}
-
-class _FitActionMenu extends StatelessWidget {
-  const _FitActionMenu({
-    required this.controller,
-    required this.state,
-    required this.onUserInteraction,
-  });
-
-  final UnifiedVideoController controller;
-  final UnifiedVideoState state;
-  final VoidCallback onUserInteraction;
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<UnifiedVideoFit>(
-      key: const ValueKey<String>('fit-menu'),
-      tooltip: '画面缩放',
-      color: const Color(0xFF181818),
-      onOpened: onUserInteraction,
-      onSelected: (UnifiedVideoFit fit) {
-        onUserInteraction();
-        _ignorePlaybackError(() => controller.setFit(fit));
-      },
-      itemBuilder: (BuildContext context) {
-        return UnifiedVideoFit.values
-            .map((UnifiedVideoFit fit) {
-              return PopupMenuItem<UnifiedVideoFit>(
-                key: ValueKey<String>('fit-option-${fit.name}'),
-                value: fit,
-                child: _MenuText(_fitLabel(fit), selected: state.fit == fit),
-              );
-            })
-            .toList(growable: false);
-      },
-      child: _ControlTextButton(
-        label: _fitLabel(state.fit),
-        selected: true,
-        onPressed: null,
-      ),
-    );
-  }
-}
-
-class _MenuText extends StatelessWidget {
-  const _MenuText(this.label, {required this.selected});
-
-  final String label;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: TextStyle(
-        color: selected ? const Color(0xFFFFD700) : Colors.white,
-        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-      ),
-    );
-  }
-}
-
-class _TimeLabel extends StatelessWidget {
-  const _TimeLabel({required this.duration, this.compact = false});
-
-  final Duration duration;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: compact ? 32 : (duration.inHours > 0 ? 58 : 42),
-      child: Text(
-        _formatDuration(duration),
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w500,
-          fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
         ),
       ),
     );
@@ -2010,7 +1390,7 @@ class _SettingsChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Color foreground = selected
-        ? const Color(0xFFFFD700)
+        ? const Color(0xFF7EC3FF)
         : onPressed == null
         ? Colors.white.withValues(alpha: 0.52)
         : Colors.white;
@@ -2018,7 +1398,7 @@ class _SettingsChip extends StatelessWidget {
       height: 34,
       child: Material(
         color: selected
-            ? const Color(0xFFFFD700).withValues(alpha: 0.10)
+            ? const Color(0xFF7EC3FF).withValues(alpha: 0.10)
             : Colors.white.withValues(alpha: 0.075),
         borderRadius: BorderRadius.circular(4),
         child: InkWell(
@@ -2029,7 +1409,7 @@ class _SettingsChip extends StatelessWidget {
               borderRadius: BorderRadius.circular(4),
               border: Border.all(
                 color: selected
-                    ? const Color(0xFFFFD700).withValues(alpha: 0.48)
+                    ? const Color(0xFF7EC3FF).withValues(alpha: 0.48)
                     : Colors.white.withValues(alpha: 0.08),
               ),
             ),
@@ -2105,23 +1485,6 @@ String _kernelDisplayName(UnifiedVideoController controller, String? kernelId) {
   return kernelId;
 }
 
-String _activeKernelShortName(
-  UnifiedVideoController controller,
-  UnifiedVideoState state,
-) {
-  final String name = _activeKernelName(controller, state);
-  if (name.contains('Erika')) {
-    return 'Erika';
-  }
-  if (name.toLowerCase().contains('media')) {
-    return 'MediaKit';
-  }
-  if (name.toLowerCase().contains('video')) {
-    return 'Video';
-  }
-  return name.length > 10 ? '${name.substring(0, 10)}…' : name;
-}
-
 String _fitLabel(UnifiedVideoFit fit) {
   switch (fit) {
     case UnifiedVideoFit.original:
@@ -2137,17 +1500,6 @@ String _fitLabel(UnifiedVideoFit fit) {
     case UnifiedVideoFit.cover:
       return '裁剪';
   }
-}
-
-String _formatDuration(Duration duration) {
-  final int hours = duration.inHours;
-  final int minutes = duration.inMinutes.remainder(60);
-  final int seconds = duration.inSeconds.remainder(60);
-  if (hours > 0) {
-    return '$hours:${minutes.toString().padLeft(2, '0')}:'
-        '${seconds.toString().padLeft(2, '0')}';
-  }
-  return '$minutes:${seconds.toString().padLeft(2, '0')}';
 }
 
 double _playerAspectRatio(double fallback, UnifiedVideoFit fit) {

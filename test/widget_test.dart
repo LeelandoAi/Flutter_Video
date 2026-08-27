@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,11 +20,14 @@ void main() {
     String? initialEpisodeId,
     ValueChanged<VideoEpisode>? onEpisodeChanged,
     Size viewSize = const Size(800, 600),
+    double viewPaddingBottom = 0,
   }) async {
     tester.view.physicalSize = viewSize;
     tester.view.devicePixelRatio = 1;
+    tester.view.viewPadding = FakeViewPadding(bottom: viewPaddingBottom);
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewPadding);
     final UnifiedVideoController controller = UnifiedVideoController(
       registry: VideoKernelRegistry(
         kernels: <RegisteredVideoKernel>[createFakeVideoKernel()],
@@ -98,7 +102,7 @@ void main() {
 
   void completeDelayedOpen() => delayedSwitchAdapter.completeOpen();
 
-  List<VideoEpisode> _testEpisodes() => <VideoEpisode>[
+  List<VideoEpisode> testEpisodes() => <VideoEpisode>[
     VideoEpisode(
       id: 'e1',
       title: '第 1 集',
@@ -119,7 +123,7 @@ void main() {
     ),
   ];
 
-  UnifiedVideoController _createFakeController() {
+  UnifiedVideoController createFakeController() {
     return UnifiedVideoController(
       registry: VideoKernelRegistry(
         kernels: <RegisteredVideoKernel>[createFakeVideoKernel()],
@@ -171,7 +175,7 @@ void main() {
     int previousCalls = 0;
     await pumpPlayer(
       tester,
-      episodes: _testEpisodes(),
+      episodes: testEpisodes(),
       initialEpisodeId: 'e1',
       onPrevious: () => previousCalls += 1,
     );
@@ -188,7 +192,7 @@ void main() {
     int nextCalls = 0;
     await pumpPlayer(
       tester,
-      episodes: _testEpisodes(),
+      episodes: testEpisodes(),
       initialEpisodeId: 'e3',
       onNext: () => nextCalls += 1,
     );
@@ -272,7 +276,7 @@ void main() {
         home: Scaffold(
           body: UnifiedVideoPlayer(
             controller: controller,
-            episodes: _testEpisodes(),
+            episodes: testEpisodes(),
             initialEpisodeId: 'e2',
           ),
         ),
@@ -285,10 +289,9 @@ void main() {
 
   testWidgets('替换控制器后按新控制器播放源同步活动选集', (WidgetTester tester) async {
     // Catches controller replacement incorrectly reapplying initialEpisodeId.
-    final List<VideoEpisode> episodes = _testEpisodes();
-    final UnifiedVideoController firstController = _createFakeController();
-    final UnifiedVideoController replacementController =
-        _createFakeController();
+    final List<VideoEpisode> episodes = testEpisodes();
+    final UnifiedVideoController firstController = createFakeController();
+    final UnifiedVideoController replacementController = createFakeController();
     addTearDown(firstController.dispose);
     addTearDown(replacementController.dispose);
     await firstController.open(episodes[0].source);
@@ -343,11 +346,10 @@ void main() {
       platform: UnifiedVideoPlatform.android,
       stateRefreshInterval: null,
     );
-    final UnifiedVideoController replacementController =
-        _createFakeController();
+    final UnifiedVideoController replacementController = createFakeController();
     addTearDown(firstController.dispose);
     addTearDown(replacementController.dispose);
-    final List<VideoEpisode> episodes = _testEpisodes();
+    final List<VideoEpisode> episodes = testEpisodes();
     await replacementController.open(episodes[0].source);
     UnifiedVideoController visibleController = firstController;
     bool usingReplacementCallback = false;
@@ -418,11 +420,10 @@ void main() {
       platform: UnifiedVideoPlatform.android,
       stateRefreshInterval: null,
     );
-    final UnifiedVideoController replacementController =
-        _createFakeController();
+    final UnifiedVideoController replacementController = createFakeController();
     addTearDown(firstController.dispose);
     addTearDown(replacementController.dispose);
-    final List<VideoEpisode> episodes = _testEpisodes();
+    final List<VideoEpisode> episodes = testEpisodes();
     await replacementController.open(episodes[0].source);
     UnifiedVideoController visibleController = firstController;
     int callbackGeneration = 0;
@@ -470,7 +471,7 @@ void main() {
 
   testWidgets('后续外部播放源变更会重匹配活动选集', (WidgetTester tester) async {
     // Catches controller source changes leaving the old active episode selected.
-    final List<VideoEpisode> episodes = _testEpisodes();
+    final List<VideoEpisode> episodes = testEpisodes();
     final UnifiedVideoController controller = await pumpPlayer(
       tester,
       episodes: episodes,
@@ -487,8 +488,8 @@ void main() {
 
   testWidgets('更新选集列表时保留仍存在的活动选集', (WidgetTester tester) async {
     // Catches list updates discarding an active ID that remains available.
-    final List<VideoEpisode> episodes = _testEpisodes();
-    final UnifiedVideoController controller = _createFakeController();
+    final List<VideoEpisode> episodes = testEpisodes();
+    final UnifiedVideoController controller = createFakeController();
     addTearDown(controller.dispose);
     List<VideoEpisode> visibleEpisodes = episodes;
     late StateSetter updateHost;
@@ -522,8 +523,8 @@ void main() {
 
   testWidgets('移除活动选集后按当前播放源重匹配', (WidgetTester tester) async {
     // Catches removal of the active episode leaving stale navigation state.
-    final List<VideoEpisode> episodes = _testEpisodes();
-    final UnifiedVideoController controller = _createFakeController();
+    final List<VideoEpisode> episodes = testEpisodes();
+    final UnifiedVideoController controller = createFakeController();
     addTearDown(controller.dispose);
     await controller.open(episodes[0].source);
     List<VideoEpisode> visibleEpisodes = episodes;
@@ -558,8 +559,8 @@ void main() {
 
   testWidgets('无法重匹配时清除已移除的活动选集', (WidgetTester tester) async {
     // Catches an unresolved list update retaining a stale active ID.
-    final List<VideoEpisode> episodes = _testEpisodes();
-    final UnifiedVideoController controller = _createFakeController();
+    final List<VideoEpisode> episodes = testEpisodes();
+    final UnifiedVideoController controller = createFakeController();
     addTearDown(controller.dispose);
     List<VideoEpisode> visibleEpisodes = episodes;
     int legacyNextCalls = 0;
@@ -615,31 +616,180 @@ void main() {
     expect(find.byKey(const ValueKey<String>('play-pause')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('fullscreen')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('settings-menu')), findsOneWidget);
-    expect(find.byKey(const ValueKey<String>('fit-menu')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('speed-menu')), findsOneWidget);
-    expect(find.byKey(const ValueKey<String>('kernel-menu')), findsOneWidget);
-    expect(find.byKey(const ValueKey<String>('mirror-action')), findsOneWidget);
-    expect(find.byKey(const ValueKey<String>('rotate')), findsOneWidget);
+  });
+
+  testWidgets('主控行不保留旧中央与底部的重复运输控件', (WidgetTester tester) async {
+    // Catches the obsolete center transport and horizontal action strip returning.
+    await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('action-play-pause')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('previous-episode-action')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('next-episode-action')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('倍速选中态使用视频背景上的蓝色强调', (WidgetTester tester) async {
+    // Catches the retired yellow menu-selection treatment returning.
+    await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('speed-menu')));
+    await tester.pumpAndSettle();
+    final Text selectedSpeed = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('speed-option-1.0')),
+        matching: find.text('1.0x'),
+      ),
+    );
+
+    expect(selectedSpeed.style?.color, const Color(0xFF7EC3FF));
+  });
+
+  testWidgets('竖屏嵌入隐藏选集且主控没有可见背景', (WidgetTester tester) async {
+    // Catches compact layouts exposing episodes or restoring a toolbar surface.
+    await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      viewSize: const Size(393, 852),
+    );
+
+    expect(find.byKey(const ValueKey<String>('episode-picker')), findsNothing);
+    final Finder controls = find.byKey(
+      const ValueKey<String>('primary-controls-row'),
+    );
+    expect(controls, findsOneWidget);
+    expect(
+      find.descendant(of: controls, matching: find.byType(DecoratedBox)),
+      findsNothing,
+    );
+  });
+
+  testWidgets('桌面宽布局显示选集并保持 44 像素热区', (WidgetTester tester) async {
+    // Catches wide mode hiding episodes or shrinking the primary hit target.
+    await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('episode-picker')),
+      findsOneWidget,
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey<String>('play-pause'))).height,
+      greaterThanOrEqualTo(44),
+    );
+  });
+
+  testWidgets('嵌入主控行严格使用移动 1 和桌面 2 的底距', (WidgetTester tester) async {
+    // Catches compact or wide controls drifting away from the visual baseline.
+    await pumpPlayer(tester, viewSize: const Size(393, 852));
+    final double mobileBottom = tester
+        .getBottomRight(find.byKey(const ValueKey<String>('player-frame')))
+        .dy;
+    final double mobileControlsBottom = tester
+        .getBottomRight(
+          find.byKey(const ValueKey<String>('primary-controls-row')),
+        )
+        .dy;
+    expect(mobileBottom - mobileControlsBottom, 1);
+
+    await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+    final double desktopBottom = tester
+        .getBottomRight(find.byKey(const ValueKey<String>('player-frame')))
+        .dy;
+    final double desktopControlsBottom = tester
+        .getBottomRight(
+          find.byKey(const ValueKey<String>('primary-controls-row')),
+        )
+        .dy;
+    expect(desktopBottom - desktopControlsBottom, 2);
+  });
+
+  testWidgets('手机横屏主控贴住系统底部安全区', (WidgetTester tester) async {
+    // Catches expanded mode hard-coding a device inset or adding visual padding.
+    await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      viewSize: const Size(852, 393),
+      viewPaddingBottom: 21,
+    );
+
+    final double playerBottom = tester
+        .getBottomRight(find.byKey(const ValueKey<String>('player-frame')))
+        .dy;
+    final double controlsBottom = tester
+        .getBottomRight(
+          find.byKey(const ValueKey<String>('primary-controls-row')),
+        )
+        .dy;
+    expect(playerBottom - controlsBottom, 21);
+    expect(
+      find.byKey(const ValueKey<String>('episode-picker')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('没有选集数据时宽布局不显示空选集入口', (WidgetTester tester) async {
+    // Catches responsive visibility bypassing the hasEpisodes requirement.
+    await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('primary-controls-row')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('episode-picker')), findsNothing);
   });
 
   testWidgets('未提供上一集和下一集回调时按钮不可点击', (WidgetTester tester) async {
+    // Catches disabled transport controls remaining tappable or semantically enabled.
+    final SemanticsHandle semantics = tester.ensureSemantics();
     await pumpPlayer(tester);
 
-    final IconButton previous = tester.widget<IconButton>(
-      find.descendant(
-        of: find.byKey(const ValueKey<String>('previous-episode')),
-        matching: find.byType(IconButton),
-      ),
+    expect(
+      tester
+          .getSemantics(find.byKey(const ValueKey<String>('previous-episode')))
+          .flagsCollection
+          .isEnabled,
+      Tristate.isFalse,
     );
-    final IconButton next = tester.widget<IconButton>(
-      find.descendant(
-        of: find.byKey(const ValueKey<String>('next-episode')),
-        matching: find.byType(IconButton),
-      ),
+    expect(
+      tester
+          .getSemantics(find.byKey(const ValueKey<String>('next-episode')))
+          .flagsCollection
+          .isEnabled,
+      Tristate.isFalse,
     );
-
-    expect(previous.onPressed, isNull);
-    expect(next.onPressed, isNull);
+    semantics.dispose();
   });
 
   testWidgets('窄屏播放器控制栏不会横向溢出', (WidgetTester tester) async {
@@ -766,7 +916,7 @@ void main() {
   testWidgets('UI 可以修改缩放、倍速和全屏状态', (WidgetTester tester) async {
     final UnifiedVideoController controller = await pumpPlayer(tester);
 
-    await tester.tap(find.byKey(const ValueKey<String>('fit-menu')));
+    await tester.tap(find.byKey(const ValueKey<String>('settings-menu')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('fit-option-cover')));
     await tester.pumpAndSettle();
@@ -1187,7 +1337,7 @@ void main() {
     );
     addTearDown(controller.dispose);
 
-    await tester.tap(find.byKey(const ValueKey<String>('kernel-menu')));
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey<String>('kernel-option-compatible')),
@@ -1303,7 +1453,7 @@ void main() {
     );
     addTearDown(controller.dispose);
 
-    await tester.tap(find.byKey(const ValueKey<String>('kernel-menu')));
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('kernel-option-erika')));
     await tester.pumpAndSettle();
