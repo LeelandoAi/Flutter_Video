@@ -7,7 +7,8 @@ enum PlayerViewMode { compact, expanded, wide }
 class PlayerViewMetrics {
   const PlayerViewMetrics({
     required this.mode,
-    required this.horizontalPadding,
+    required this.leftPadding,
+    required this.rightPadding,
     required this.bottomPadding,
     required this.progressHeight,
     required this.iconSize,
@@ -15,7 +16,8 @@ class PlayerViewMetrics {
   });
 
   final PlayerViewMode mode;
-  final double horizontalPadding;
+  final double leftPadding;
+  final double rightPadding;
   final double bottomPadding;
   final double progressHeight;
   final double iconSize;
@@ -29,7 +31,7 @@ class PlayerViewMetrics {
     required bool fullscreen,
     required Orientation orientation,
     required double width,
-    required double viewPaddingBottom,
+    required EdgeInsets viewPadding,
   }) {
     final bool desktop =
         platform == UnifiedVideoPlatform.windows ||
@@ -49,7 +51,8 @@ class PlayerViewMetrics {
       case PlayerViewMode.compact:
         return const PlayerViewMetrics(
           mode: PlayerViewMode.compact,
-          horizontalPadding: 7,
+          leftPadding: 7,
+          rightPadding: 7,
           bottomPadding: 1,
           progressHeight: 2,
           iconSize: 17,
@@ -58,8 +61,9 @@ class PlayerViewMetrics {
       case PlayerViewMode.expanded:
         return PlayerViewMetrics(
           mode: PlayerViewMode.expanded,
-          horizontalPadding: 8,
-          bottomPadding: viewPaddingBottom,
+          leftPadding: viewPadding.left + 8,
+          rightPadding: viewPadding.right + 24,
+          bottomPadding: viewPadding.bottom,
           progressHeight: 3,
           iconSize: 21,
           primaryIconSize: 29,
@@ -67,7 +71,8 @@ class PlayerViewMetrics {
       case PlayerViewMode.wide:
         return const PlayerViewMetrics(
           mode: PlayerViewMode.wide,
-          horizontalPadding: 14,
+          leftPadding: 14,
+          rightPadding: 14,
           bottomPadding: 2,
           progressHeight: 3,
           iconSize: 21,

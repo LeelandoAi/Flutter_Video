@@ -9,6 +9,7 @@ class PlayerControls extends StatelessWidget {
     required this.state,
     required this.metrics,
     required this.hasEpisodes,
+    required this.danmakuEnabled,
     required this.onPrevious,
     required this.onPlayPause,
     required this.onNext,
@@ -25,6 +26,7 @@ class PlayerControls extends StatelessWidget {
   final UnifiedVideoState state;
   final PlayerViewMetrics metrics;
   final bool hasEpisodes;
+  final bool danmakuEnabled;
   final VoidCallback? onPrevious;
   final VoidCallback onPlayPause;
   final VoidCallback? onNext;
@@ -53,9 +55,9 @@ class PlayerControls extends StatelessWidget {
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        metrics.horizontalPadding,
+        metrics.leftPadding,
         0,
-        metrics.horizontalPadding,
+        metrics.rightPadding,
         metrics.bottomPadding,
       ),
       child: Column(
@@ -70,7 +72,7 @@ class PlayerControls extends StatelessWidget {
             ],
           ),
           SizedBox(
-            height: metrics.mode == PlayerViewMode.compact ? 16 : 18,
+            height: 44,
             child: SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: metrics.progressHeight,
@@ -134,9 +136,13 @@ class PlayerControls extends StatelessWidget {
                     ),
                   _ControlHitTarget.icon(
                     key: const ValueKey<String>('danmaku-toggle'),
-                    semanticLabel: '开关弹幕',
-                    icon: Icons.chat_bubble_outline,
+                    semanticLabel: danmakuEnabled ? '关闭弹幕' : '打开弹幕',
+                    icon: danmakuEnabled
+                        ? Icons.chat_bubble
+                        : Icons.chat_bubble_outline,
                     iconSize: metrics.iconSize,
+                    color: danmakuEnabled ? const Color(0xFF7EC3FF) : null,
+                    toggled: danmakuEnabled,
                     onPressed: onToggleDanmaku,
                   ),
                   _ControlHitTarget.text(
@@ -187,6 +193,7 @@ class _ControlHitTarget extends StatelessWidget {
     super.key,
     required this.semanticLabel,
     required this.onPressed,
+    required this.toggled,
     required this.child,
   });
 
@@ -195,16 +202,19 @@ class _ControlHitTarget extends StatelessWidget {
     required String semanticLabel,
     required IconData icon,
     required double iconSize,
+    Color? color,
+    bool? toggled,
     required VoidCallback? onPressed,
   }) {
     return _ControlHitTarget._(
       key: key,
       semanticLabel: semanticLabel,
       onPressed: onPressed,
+      toggled: toggled,
       child: Icon(
         icon,
         size: iconSize,
-        color: _foreground(onPressed),
+        color: color ?? _foreground(onPressed),
         shadows: const <Shadow>[
           Shadow(color: Color(0xCC000000), offset: Offset(0, 2), blurRadius: 6),
         ],
@@ -223,6 +233,7 @@ class _ControlHitTarget extends StatelessWidget {
       key: key,
       semanticLabel: semanticLabel,
       onPressed: onPressed,
+      toggled: null,
       child: Text(
         label,
         maxLines: 1,
@@ -245,6 +256,7 @@ class _ControlHitTarget extends StatelessWidget {
 
   final String semanticLabel;
   final VoidCallback? onPressed;
+  final bool? toggled;
   final Widget child;
 
   static Color _foreground(VoidCallback? onPressed) =>
@@ -255,6 +267,7 @@ class _ControlHitTarget extends StatelessWidget {
     return Semantics(
       button: true,
       enabled: onPressed != null,
+      toggled: toggled,
       label: semanticLabel,
       child: MouseRegion(
         cursor: onPressed == null

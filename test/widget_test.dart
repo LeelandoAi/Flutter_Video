@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:ui' show Tristate;
+import 'dart:ui' show PointerDeviceKind, Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,11 +20,17 @@ void main() {
     String? initialEpisodeId,
     ValueChanged<VideoEpisode>? onEpisodeChanged,
     Size viewSize = const Size(800, 600),
+    double viewPaddingLeft = 0,
+    double viewPaddingRight = 0,
     double viewPaddingBottom = 0,
   }) async {
     tester.view.physicalSize = viewSize;
     tester.view.devicePixelRatio = 1;
-    tester.view.viewPadding = FakeViewPadding(bottom: viewPaddingBottom);
+    tester.view.viewPadding = FakeViewPadding(
+      left: viewPaddingLeft,
+      right: viewPaddingRight,
+      bottom: viewPaddingBottom,
+    );
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetViewPadding);
@@ -615,7 +621,7 @@ void main() {
     expect(find.byKey(const ValueKey<String>('next-episode')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('play-pause')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('fullscreen')), findsOneWidget);
-    expect(find.byKey(const ValueKey<String>('settings-menu')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('more-menu')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('speed-menu')), findsOneWidget);
   });
 
@@ -755,6 +761,169 @@ void main() {
     );
   });
 
+  testWidgets('手机横屏主控遵守左右安全区和视觉边界', (WidgetTester tester) async {
+    // Catches Expanded mode dropping asymmetric horizontal safe-area insets.
+    await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      viewSize: const Size(852, 393),
+      viewPaddingLeft: 51,
+      viewPaddingRight: 6,
+    );
+
+    final Finder frame = find.byKey(const ValueKey<String>('player-frame'));
+    final Finder controls = find.byKey(
+      const ValueKey<String>('primary-controls-row'),
+    );
+    expect(tester.getTopLeft(controls).dx - tester.getTopLeft(frame).dx, 59);
+    expect(tester.getTopRight(frame).dx - tester.getTopRight(controls).dx, 30);
+  });
+
+  testWidgets('进度拖动热区至少 44 且视觉轨道保持 2 与 3', (WidgetTester tester) async {
+    // Catches the slider render/hit box collapsing to the visual track region.
+    final UnifiedVideoController compactController = await pumpPlayer(
+      tester,
+      viewSize: const Size(393, 852),
+    );
+    compactController.value = compactController.value.copyWith(
+      duration: const Duration(seconds: 100),
+      position: Duration.zero,
+    );
+    await tester.pump();
+
+    final Finder compactProgress = find.byKey(
+      const ValueKey<String>('video-progress'),
+    );
+    expect(tester.getSize(compactProgress).height, greaterThanOrEqualTo(44));
+    expect(
+      tester
+          .widget<SliderTheme>(
+            find.ancestor(
+              of: compactProgress,
+              matching: find.byType(SliderTheme),
+            ),
+          )
+          .data
+          .trackHeight,
+      2,
+    );
+    final Rect compactRect = tester.getRect(compactProgress);
+    await tester.tapAt(
+      Offset(compactRect.left + compactRect.width * 0.75, compactRect.top + 2),
+    );
+    await tester.pump();
+    expect(compactController.value.position.inSeconds, greaterThan(50));
+
+    await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+    final Finder wideProgress = find.byKey(
+      const ValueKey<String>('video-progress'),
+    );
+    expect(tester.getSize(wideProgress).height, greaterThanOrEqualTo(44));
+    expect(
+      tester
+          .widget<SliderTheme>(
+            find.ancestor(of: wideProgress, matching: find.byType(SliderTheme)),
+          )
+          .data
+          .trackHeight,
+      3,
+    );
+  });
+
+  testWidgets('更多面板交互项保持 44 热区', (WidgetTester tester) async {
+    // Catches legacy settings actions retaining their old 34-pixel targets.
+    await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    await tester.pumpAndSettle();
+
+    final Finder speedOption = find.byKey(
+      const ValueKey<String>('speed-option-1.25'),
+    );
+    expect(tester.getSize(speedOption).height, greaterThanOrEqualTo(44));
+    await tester.tap(speedOption);
+    await tester.pumpAndSettle();
+    expect(find.text('播放设置'), findsNothing);
+  });
+
+  testWidgets('弹幕开关同时更新语义蓝色和实心图标', (WidgetTester tester) async {
+    // Catches danmaku state being conveyed by neither semantics nor a visual signal.
+    final SemanticsHandle semantics = tester.ensureSemantics();
+    await pumpPlayer(tester, viewSize: const Size(393, 852));
+    final Finder toggle = find.byKey(const ValueKey<String>('danmaku-toggle'));
+
+    expect(tester.getSemantics(toggle).label, '打开弹幕');
+    final Icon disabledIcon = tester.widget<Icon>(
+      find.descendant(
+        of: toggle,
+        matching: find.byIcon(Icons.chat_bubble_outline),
+      ),
+    );
+    expect(disabledIcon.color, Colors.white);
+
+    await tester.tap(toggle);
+    await tester.pump();
+
+    expect(tester.getSemantics(toggle).label, '关闭弹幕');
+    final Icon enabledIcon = tester.widget<Icon>(
+      find.descendant(of: toggle, matching: find.byIcon(Icons.chat_bubble)),
+    );
+    expect(enabledIcon.color, const Color(0xFF7EC3FF));
+    semantics.dispose();
+  });
+
+  testWidgets('紧凑隐藏标题且非紧凑只显示批准标题', (WidgetTester tester) async {
+    // Catches legacy top actions returning or title typography ignoring the mode.
+    await pumpPlayer(tester, viewSize: const Size(393, 852));
+    expect(find.byKey(const ValueKey<String>('player-title')), findsNothing);
+
+    await pumpPlayer(tester, viewSize: const Size(852, 393));
+    expect(find.byKey(const ValueKey<String>('player-title')), findsOneWidget);
+    final Text expandedTitle = tester.widget<Text>(
+      find.byKey(const ValueKey<String>('player-title')),
+    );
+    final Text expandedSubtitle = tester.widget<Text>(
+      find.byKey(const ValueKey<String>('player-subtitle')),
+    );
+    expect(expandedTitle.data, '测试影片');
+    expect(expandedTitle.style?.fontSize, 18);
+    expect(expandedTitle.style?.letterSpacing, -0.36);
+    expect(expandedSubtitle.style?.fontSize, 11);
+    for (final String key in <String>[
+      'player-back',
+      'night-mode',
+      'favorite',
+      'settings-menu',
+      'cast',
+      'info',
+    ]) {
+      expect(find.byKey(ValueKey<String>(key)), findsNothing);
+    }
+
+    await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+    );
+    expect(find.byKey(const ValueKey<String>('player-title')), findsOneWidget);
+    final Text wideTitle = tester.widget<Text>(
+      find.byKey(const ValueKey<String>('player-title')),
+    );
+    final Text wideSubtitle = tester.widget<Text>(
+      find.byKey(const ValueKey<String>('player-subtitle')),
+    );
+    expect(wideTitle.style?.fontSize, 17);
+    expect(wideSubtitle.style?.fontSize, 10);
+  });
+
   testWidgets('没有选集数据时宽布局不显示空选集入口', (WidgetTester tester) async {
     // Catches responsive visibility bypassing the hasEpisodes requirement.
     await pumpPlayer(
@@ -843,6 +1012,54 @@ void main() {
     expect(_controlsOverlay(tester).opacity, 1);
   });
 
+  testWidgets('桌面鼠标进入隐藏播放器时恢复控件', (WidgetTester tester) async {
+    // Catches desktop hover events bypassing the existing show-controls path.
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+      autoHideControlsDelay: const Duration(milliseconds: 100),
+    );
+    await controller.play();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(_controlsOverlay(tester).opacity, 0);
+
+    final TestGesture mouse = await tester.createGesture(
+      kind: PointerDeviceKind.mouse,
+    );
+    await mouse.addPointer(
+      location: tester.getCenter(
+        find.byKey(const ValueKey<String>('player-frame')),
+      ),
+    );
+    await tester.pump();
+
+    expect(_controlsOverlay(tester).opacity, 1);
+    await mouse.removePointer();
+  });
+
+  testWidgets('桌面键盘活动恢复隐藏控件', (WidgetTester tester) async {
+    // Catches keyboard events lacking a focused reveal path through the player.
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      platform: UnifiedVideoPlatform.windows,
+      viewSize: const Size(1280, 720),
+      autoHideControlsDelay: const Duration(milliseconds: 100),
+    );
+    await controller.play();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(_controlsOverlay(tester).opacity, 0);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.pump();
+
+    expect(_controlsOverlay(tester).opacity, 1);
+  });
+
   testWidgets('播放状态刷新不会阻止控件自动隐藏', (WidgetTester tester) async {
     const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
       id: 'refreshing',
@@ -916,7 +1133,7 @@ void main() {
   testWidgets('UI 可以修改缩放、倍速和全屏状态', (WidgetTester tester) async {
     final UnifiedVideoController controller = await pumpPlayer(tester);
 
-    await tester.tap(find.byKey(const ValueKey<String>('settings-menu')));
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('fit-option-cover')));
     await tester.pumpAndSettle();
@@ -1354,7 +1571,7 @@ void main() {
 
     await tester.tapAt(const Offset(1, 1));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('settings-menu')));
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey<String>('kernel-option-compatible')),
@@ -1373,7 +1590,7 @@ void main() {
   testWidgets('设置面板按钮生效后自动关闭', (WidgetTester tester) async {
     final UnifiedVideoController controller = await pumpPlayer(tester);
 
-    await tester.tap(find.byKey(const ValueKey<String>('settings-menu')));
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
     await tester.pumpAndSettle();
     expect(find.text('播放设置'), findsOneWidget);
 
@@ -1382,7 +1599,7 @@ void main() {
     expect(controller.value.speed, 1.25);
     expect(find.text('播放设置'), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey<String>('settings-menu')));
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
     await tester.pumpAndSettle();
     expect(find.text('播放设置'), findsOneWidget);
 

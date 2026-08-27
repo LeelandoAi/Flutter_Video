@@ -359,9 +359,7 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
   bool _controlsVisible = true;
   bool _scrubbing = false;
   bool _danmakuEnabled = false;
-  bool _favorite = false;
   bool _mirrored = false;
-  bool _nightMode = false;
   int _quarterTurns = 0;
   Timer? _hideControlsTimer;
   UnifiedVideoLifecycle? _lastLifecycle;
@@ -489,182 +487,186 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView> {
               fullscreen: state.fullscreen,
               orientation: MediaQuery.orientationOf(context),
               width: constraints.maxWidth,
-              viewPaddingBottom: MediaQuery.viewPaddingOf(context).bottom,
+              viewPadding: MediaQuery.viewPaddingOf(context),
             );
-            return Listener(
+            final bool desktopInput =
+                widget.controller.platform == UnifiedVideoPlatform.windows ||
+                widget.controller.platform == UnifiedVideoPlatform.macos ||
+                widget.controller.platform == UnifiedVideoPlatform.linux;
+            return MouseRegion(
               key: const ValueKey<String>('player-frame'),
-              behavior: HitTestBehavior.opaque,
-              onPointerDown: (_) => _showControls(),
-              onPointerMove: (_) => _showControls(),
-              onPointerSignal: (_) => _showControls(),
-              child: DecoratedBox(
-                decoration: const BoxDecoration(color: Colors.black),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: <Widget>[
-                    Transform.rotate(
-                      angle: _quarterTurns * math.pi / 2,
-                      child: Transform(
-                        alignment: Alignment.center,
-                        transform: Matrix4.diagonal3Values(
-                          _mirrored ? -1.0 : 1.0,
-                          1,
-                          1,
+              opaque: true,
+              onEnter: desktopInput ? (_) => _showControls() : null,
+              onHover: desktopInput ? (_) => _showControls() : null,
+              child: Focus(
+                autofocus: desktopInput,
+                onKeyEvent: desktopInput
+                    ? (FocusNode node, KeyEvent event) {
+                        _showControls();
+                        return KeyEventResult.ignored;
+                      }
+                    : null,
+                child: Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: (_) => _showControls(),
+                  onPointerMove: (_) => _showControls(),
+                  onPointerSignal: (_) => _showControls(),
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(color: Colors.black),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: <Widget>[
+                        Transform.rotate(
+                          angle: _quarterTurns * math.pi / 2,
+                          child: Transform(
+                            alignment: Alignment.center,
+                            transform: Matrix4.diagonal3Values(
+                              _mirrored ? -1.0 : 1.0,
+                              1,
+                              1,
+                            ),
+                            child: _VideoSurface(
+                              controller: widget.controller,
+                              state: state,
+                            ),
+                          ),
                         ),
-                        child: _VideoSurface(
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _toggleControls,
+                          ),
+                        ),
+                        _StateOverlay(
                           controller: widget.controller,
                           state: state,
+                          onRetry: _retryCurrentSource,
                         ),
-                      ),
-                    ),
-                    if (_nightMode)
-                      Positioned.fill(
-                        child: ColoredBox(
-                          color: Colors.black.withValues(alpha: 0.18),
-                        ),
-                      ),
-                    Positioned.fill(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: _toggleControls,
-                      ),
-                    ),
-                    _StateOverlay(
-                      controller: widget.controller,
-                      state: state,
-                      onRetry: _retryCurrentSource,
-                    ),
-                    if (state.lastKernelSwitchError != null &&
-                        state.lifecycle != UnifiedVideoLifecycle.failed)
-                      Positioned(
-                        left: 20,
-                        right: 20,
-                        top: 18,
-                        child: IgnorePointer(
-                          child: Semantics(
-                            liveRegion: true,
-                            child: DecoratedBox(
-                              key: const ValueKey<String>(
-                                'kernel-switch-error-message',
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.72),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.16),
-                                ),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                                child: Text(
-                                  state.lastKernelSwitchError!.message,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 13,
+                        if (state.lastKernelSwitchError != null &&
+                            state.lifecycle != UnifiedVideoLifecycle.failed)
+                          Positioned(
+                            left: 20,
+                            right: 20,
+                            top: 18,
+                            child: IgnorePointer(
+                              child: Semantics(
+                                liveRegion: true,
+                                child: DecoratedBox(
+                                  key: const ValueKey<String>(
+                                    'kernel-switch-error-message',
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.72),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.16,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    child: Text(
+                                      state.lastKernelSwitchError!.message,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
-                    AnimatedOpacity(
-                      key: const ValueKey<String>('player-controls-overlay'),
-                      opacity: controlsShown ? 1 : 0,
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                      child: IgnorePointer(
-                        ignoring: !controlsShown,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: <Widget>[
-                            if (metrics.mode != PlayerViewMode.compact)
-                              _PlayerTopBar(
-                                controller: widget.controller,
-                                state: state,
-                                favorite: _favorite,
-                                nightMode: _nightMode,
-                                onBackPressed: widget.onFullscreenPressed,
-                                onToggleFavorite: () {
-                                  _showControls();
-                                  setState(() => _favorite = !_favorite);
-                                },
-                                onToggleNightMode: () {
-                                  _showControls();
-                                  setState(() => _nightMode = !_nightMode);
-                                },
-                                onOpenSettings: () {
-                                  _showControls();
-                                  _ignorePlaybackError(_openSettingsSheet);
-                                },
-                              ),
-                            Positioned.fill(
-                              child: PlayerControls(
-                                state: state,
-                                metrics: metrics,
-                                hasEpisodes: widget.hasEpisodes,
-                                onPrevious: widget.onPrevious,
-                                onPlayPause: () {
-                                  _showControls();
-                                  if (state.isPlaying) {
-                                    _ignorePlaybackError(
-                                      widget.controller.pause,
-                                    );
-                                  } else {
-                                    _ignorePlaybackError(
-                                      () => _playOrReplay(
-                                        widget.controller,
-                                        state,
-                                      ),
-                                    );
-                                  }
-                                },
-                                onNext: widget.onNext,
-                                onOpenEpisodes: () {
-                                  _showControls();
-                                  widget.onSwitchContent?.call();
-                                },
-                                onToggleDanmaku: () {
-                                  _showControls();
-                                  setState(
-                                    () => _danmakuEnabled = !_danmakuEnabled,
-                                  );
-                                },
-                                onOpenSpeed: () {
-                                  _showControls();
-                                  _ignorePlaybackError(_openSettingsSheet);
-                                },
-                                onOpenMore: () {
-                                  _showControls();
-                                  _ignorePlaybackError(_openSettingsSheet);
-                                },
-                                onToggleFullscreen: () {
-                                  _showControls();
-                                  _ignorePlaybackError(
-                                    widget.onFullscreenPressed,
-                                  );
-                                },
-                                onSeekStart: _startScrubbing,
-                                onSeek: (double value) {
-                                  _showControls();
-                                  _ignorePlaybackError(
-                                    () => widget.controller.seek(
-                                      Duration(milliseconds: value.round()),
-                                    ),
-                                  );
-                                },
-                                onSeekEnd: _endScrubbing,
-                              ),
+                        AnimatedOpacity(
+                          key: const ValueKey<String>(
+                            'player-controls-overlay',
+                          ),
+                          opacity: controlsShown ? 1 : 0,
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                          child: IgnorePointer(
+                            ignoring: !controlsShown,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: <Widget>[
+                                if (metrics.mode != PlayerViewMode.compact)
+                                  _PlayerTitleOverlay(
+                                    controller: widget.controller,
+                                    state: state,
+                                    metrics: metrics,
+                                  ),
+                                Positioned.fill(
+                                  child: PlayerControls(
+                                    state: state,
+                                    metrics: metrics,
+                                    hasEpisodes: widget.hasEpisodes,
+                                    danmakuEnabled: _danmakuEnabled,
+                                    onPrevious: widget.onPrevious,
+                                    onPlayPause: () {
+                                      _showControls();
+                                      if (state.isPlaying) {
+                                        _ignorePlaybackError(
+                                          widget.controller.pause,
+                                        );
+                                      } else {
+                                        _ignorePlaybackError(
+                                          () => _playOrReplay(
+                                            widget.controller,
+                                            state,
+                                          ),
+                                        );
+                                      }
+                                    },
+                                    onNext: widget.onNext,
+                                    onOpenEpisodes: () {
+                                      _showControls();
+                                      widget.onSwitchContent?.call();
+                                    },
+                                    onToggleDanmaku: () {
+                                      _showControls();
+                                      setState(
+                                        () =>
+                                            _danmakuEnabled = !_danmakuEnabled,
+                                      );
+                                    },
+                                    onOpenSpeed: () {
+                                      _showControls();
+                                      _ignorePlaybackError(_openSettingsSheet);
+                                    },
+                                    onOpenMore: () {
+                                      _showControls();
+                                      _ignorePlaybackError(_openSettingsSheet);
+                                    },
+                                    onToggleFullscreen: () {
+                                      _showControls();
+                                      _ignorePlaybackError(
+                                        widget.onFullscreenPressed,
+                                      );
+                                    },
+                                    onSeekStart: _startScrubbing,
+                                    onSeek: (double value) {
+                                      _showControls();
+                                      _ignorePlaybackError(
+                                        () => widget.controller.seek(
+                                          Duration(milliseconds: value.round()),
+                                        ),
+                                      );
+                                    },
+                                    onSeekEnd: _endScrubbing,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             );
@@ -885,201 +887,95 @@ class _StateOverlay extends StatelessWidget {
   }
 }
 
-class _PlayerTopBar extends StatelessWidget {
-  const _PlayerTopBar({
+class _PlayerTitleOverlay extends StatelessWidget {
+  const _PlayerTitleOverlay({
     required this.controller,
     required this.state,
-    required this.favorite,
-    required this.nightMode,
-    required this.onBackPressed,
-    required this.onToggleFavorite,
-    required this.onToggleNightMode,
-    required this.onOpenSettings,
+    required this.metrics,
   });
 
   final UnifiedVideoController controller;
   final UnifiedVideoState state;
-  final bool favorite;
-  final bool nightMode;
-  final Future<void> Function() onBackPressed;
-  final VoidCallback onToggleFavorite;
-  final VoidCallback onToggleNightMode;
-  final VoidCallback onOpenSettings;
+  final PlayerViewMetrics metrics;
 
   @override
   Widget build(BuildContext context) {
+    final bool wide = metrics.mode == PlayerViewMode.wide;
+    final double titleSize = wide ? 17 : 18;
     return Positioned(
       top: 0,
       left: 0,
       right: 0,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[
-              Colors.black.withValues(alpha: 0.72),
-              Colors.black.withValues(alpha: 0),
-            ],
+      child: IgnorePointer(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: <Color>[
+                Colors.black.withValues(alpha: 0.64),
+                Colors.transparent,
+              ],
+            ),
           ),
-        ),
-        child: SafeArea(
-          bottom: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 30),
-            child: LayoutBuilder(
-              builder: (BuildContext context, BoxConstraints constraints) {
-                final bool compact = constraints.maxWidth < 460;
-                final bool wide = constraints.maxWidth >= 620;
-                return Row(
-                  children: <Widget>[
-                    _TopIconButton(
-                      key: const ValueKey<String>('player-back'),
-                      onPressed: () {
-                        if (state.fullscreen) {
-                          _ignorePlaybackError(onBackPressed);
-                        } else {
-                          Navigator.of(context).maybePop();
-                        }
-                      },
-                      tooltip: state.fullscreen ? '退出全屏' : '返回',
-                      icon: Icons.arrow_back_ios_new,
-                      compact: compact,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: _VideoTitleBlock(
-                        title: _sourceTitle(state),
-                        subtitle: _sourceSubtitle(controller, state),
-                        compact: compact,
+            padding: EdgeInsets.fromLTRB(
+              metrics.leftPadding,
+              MediaQuery.viewPaddingOf(context).top + (wide ? 20 : 18),
+              metrics.rightPadding,
+              30,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  _sourceTitle(state),
+                  key: const ValueKey<String>('player-title'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: titleSize,
+                    fontWeight: FontWeight.w600,
+                    fontVariations: const <FontVariation>[
+                      FontVariation('wght', 650),
+                    ],
+                    letterSpacing: titleSize * -0.02,
+                    shadows: const <Shadow>[
+                      Shadow(
+                        color: Color(0x8C000000),
+                        offset: Offset(0, 1),
+                        blurRadius: 4,
                       ),
-                    ),
-                    if (wide)
-                      _TopIconButton(
-                        key: const ValueKey<String>('cast'),
-                        onPressed: null,
-                        tooltip: '投屏',
-                        icon: Icons.cast,
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _sourceSubtitle(controller, state),
+                  key: const ValueKey<String>('player-subtitle'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.66),
+                    fontSize: wide ? 10 : 11,
+                    fontWeight: FontWeight.w500,
+                    fontFeatures: const <FontFeature>[
+                      FontFeature.tabularFigures(),
+                    ],
+                    shadows: const <Shadow>[
+                      Shadow(
+                        color: Color(0x8C000000),
+                        offset: Offset(0, 1),
+                        blurRadius: 4,
                       ),
-                    if (!compact)
-                      _TopIconButton(
-                        key: const ValueKey<String>('night-mode'),
-                        onPressed: onToggleNightMode,
-                        tooltip: nightMode ? '关闭夜间模式' : '夜间模式',
-                        icon: nightMode
-                            ? Icons.dark_mode
-                            : Icons.nightlight_round,
-                      ),
-                    if (!compact)
-                      _TopIconButton(
-                        key: const ValueKey<String>('favorite'),
-                        onPressed: onToggleFavorite,
-                        tooltip: favorite ? '取消常亮' : '保持常亮',
-                        icon: favorite ? Icons.bookmark : Icons.bookmark_border,
-                      ),
-                    if (!compact)
-                      _TopIconButton(
-                        key: const ValueKey<String>('info'),
-                        onPressed: null,
-                        tooltip: '信息',
-                        icon: Icons.info_outline,
-                      ),
-                    _TopIconButton(
-                      key: const ValueKey<String>('settings-menu'),
-                      onPressed: onOpenSettings,
-                      tooltip: '播放设置',
-                      icon: Icons.settings,
-                      compact: compact,
-                    ),
-                  ],
-                );
-              },
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _VideoTitleBlock extends StatelessWidget {
-  const _VideoTitleBlock({
-    required this.title,
-    required this.subtitle,
-    required this.compact,
-  });
-
-  final String title;
-  final String subtitle;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: compact ? 13 : 15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        if (!compact) ...<Widget>[
-          const SizedBox(height: 2),
-          Text(
-            subtitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.72),
-              fontSize: 11,
-              fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _TopIconButton extends StatelessWidget {
-  const _TopIconButton({
-    super.key,
-    required this.onPressed,
-    required this.tooltip,
-    required this.icon,
-    this.compact = false,
-  });
-
-  final VoidCallback? onPressed;
-  final String tooltip;
-  final IconData icon;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: compact ? 36 : 48,
-      child: IconButton(
-        padding: EdgeInsets.zero,
-        visualDensity: VisualDensity.compact,
-        onPressed: onPressed,
-        tooltip: tooltip,
-        style: IconButton.styleFrom(
-          overlayColor: Colors.white.withValues(alpha: 0.14),
-          shape: const CircleBorder(),
-        ),
-        icon: Icon(
-          icon,
-          size: compact ? 20 : 24,
-          color: onPressed == null
-              ? Colors.white.withValues(alpha: 0.34)
-              : Colors.white,
         ),
       ),
     );
@@ -1395,7 +1291,7 @@ class _SettingsChip extends StatelessWidget {
         ? Colors.white.withValues(alpha: 0.52)
         : Colors.white;
     return SizedBox(
-      height: 34,
+      height: 44,
       child: Material(
         color: selected
             ? const Color(0xFF7EC3FF).withValues(alpha: 0.10)
