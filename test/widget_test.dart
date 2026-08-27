@@ -396,6 +396,78 @@ void main() {
     expect(replacementChanges, <String>['e2']);
   });
 
+  testWidgets('控制器 A 经 B 重装后旧打开不会触发当前回调', (WidgetTester tester) async {
+    // Catches a stale A open becoming valid again after an A→B→A swap.
+    const VideoKernelDescriptor delayedDescriptor = VideoKernelDescriptor(
+      id: 'episode-delayed-reinstall',
+      displayName: '选集重装延迟内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _DelayedOpenVideoKernelAdapter delayedAdapter =
+        _DelayedOpenVideoKernelAdapter(delayedDescriptor);
+    final UnifiedVideoController firstController = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(
+            descriptor: delayedDescriptor,
+            create: () => delayedAdapter,
+          ),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.android,
+      stateRefreshInterval: null,
+    );
+    final UnifiedVideoController replacementController =
+        _createFakeController();
+    addTearDown(firstController.dispose);
+    addTearDown(replacementController.dispose);
+    final List<VideoEpisode> episodes = _testEpisodes();
+    await replacementController.open(episodes[0].source);
+    UnifiedVideoController visibleController = firstController;
+    int callbackGeneration = 0;
+    final List<String> changes = <String>[];
+    late StateSetter updateHost;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setState) {
+              updateHost = setState;
+              return UnifiedVideoPlayer(
+                controller: visibleController,
+                episodes: episodes,
+                initialEpisodeId: 'e1',
+                onEpisodeChanged: (VideoEpisode episode) {
+                  changes.add('$callbackGeneration:${episode.id}');
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('next-episode')));
+    await tester.pump();
+    updateHost(() {
+      visibleController = replacementController;
+      callbackGeneration = 1;
+    });
+    await tester.pumpAndSettle();
+    updateHost(() {
+      visibleController = firstController;
+      callbackGeneration = 2;
+    });
+    await tester.pump();
+
+    delayedAdapter.completeOpen();
+    await tester.pumpAndSettle();
+
+    expect(changes, isEmpty);
+  });
+
   testWidgets('后续外部播放源变更会重匹配活动选集', (WidgetTester tester) async {
     // Catches controller source changes leaving the old active episode selected.
     final List<VideoEpisode> episodes = _testEpisodes();

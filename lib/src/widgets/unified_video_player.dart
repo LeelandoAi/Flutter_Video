@@ -44,6 +44,7 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
   bool _fullscreenTransitioning = false;
   String? _activeEpisodeId;
   String? _openingEpisodeId;
+  int _episodeOperationGeneration = 0;
   VideoSource? _lastObservedSource;
 
   @override
@@ -67,6 +68,7 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       oldWidget.controller.releaseFullscreenOwnership();
       widget.controller.claimFullscreenOwnershipIfUnclaimed();
       widget.controller.addListener(_handleControllerFullscreenChanged);
+      _episodeOperationGeneration += 1;
       _openingEpisodeId = null;
       _lastObservedSource = widget.controller.value.source;
       _syncActiveEpisodeFromSource();
@@ -303,10 +305,13 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       return;
     }
     final UnifiedVideoController openingController = widget.controller;
+    final int openingGeneration = ++_episodeOperationGeneration;
     setState(() => _openingEpisodeId = episode.id);
     try {
       await openingController.open(episode.source);
-      if (!mounted || widget.controller != openingController) {
+      if (!mounted ||
+          widget.controller != openingController ||
+          _episodeOperationGeneration != openingGeneration) {
         return;
       }
       setState(() => _activeEpisodeId = episode.id);
@@ -314,6 +319,7 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     } finally {
       if (mounted &&
           widget.controller == openingController &&
+          _episodeOperationGeneration == openingGeneration &&
           _openingEpisodeId == episode.id) {
         setState(() => _openingEpisodeId = null);
       }
