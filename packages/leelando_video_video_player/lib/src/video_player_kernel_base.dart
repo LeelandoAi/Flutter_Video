@@ -116,7 +116,34 @@ abstract class VideoPlayerKernelAdapterBase extends VideoKernelAdapter {
     if (controller == null || !controller.value.isInitialized) {
       return const ColoredBox(color: Colors.black);
     }
-    return VideoPlayer(controller);
+    return FittedBox(
+      fit: _boxFitFor(state.fit),
+      clipBehavior: Clip.hardEdge,
+      child: SizedBox(
+        width: _displayAspectRatio(controller.value),
+        height: 1,
+        child: VideoPlayer(controller),
+      ),
+    );
+  }
+
+  double _displayAspectRatio(VideoPlayerValue value) {
+    final double aspectRatio = value.aspectRatio;
+    return value.rotationCorrection % 180 == 0 ? aspectRatio : 1 / aspectRatio;
+  }
+
+  BoxFit _boxFitFor(UnifiedVideoFit fit) {
+    switch (fit) {
+      case UnifiedVideoFit.original:
+      case UnifiedVideoFit.contain:
+      case UnifiedVideoFit.ratio16x9:
+      case UnifiedVideoFit.ratio4x3:
+        return BoxFit.contain;
+      case UnifiedVideoFit.fill:
+        return BoxFit.fill;
+      case UnifiedVideoFit.cover:
+        return BoxFit.cover;
+    }
   }
 
   @override

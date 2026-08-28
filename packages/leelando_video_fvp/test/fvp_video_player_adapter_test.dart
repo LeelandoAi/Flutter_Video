@@ -4,7 +4,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:leelando_video/leelando_video.dart';
 import 'package:leelando_video_fvp/leelando_video_fvp.dart';
-import 'package:video_player/video_player.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 void main() {
@@ -32,7 +31,7 @@ void main() {
     expect(createFvpVideoKernel().create(), isA<FvpVideoKernelAdapter>());
   });
 
-  test('FVP controller wrapper 映射完整播放命令和 Surface', () async {
+  test('FVP controller wrapper 映射完整播放命令', () async {
     UnifiedVideoState state = await adapter.open(
       VideoSource.network(
         'https://example.com/video.mp4',
@@ -64,11 +63,6 @@ void main() {
     expect(state.fit, UnifiedVideoFit.cover);
     state = await adapter.setVolume(0.4, state);
     expect(state.volume, 0.4);
-    expect(
-      adapter.buildSurface(_UnusedBuildContext(), state),
-      isA<VideoPlayer>(),
-    );
-
     state = await adapter.stop(state);
     expect(state.lifecycle, UnifiedVideoLifecycle.idle);
     expect(state.position, Duration.zero);
@@ -143,6 +137,44 @@ void main() {
     await tester.runAsync(adapter.dispose);
   });
 
+  testWidgets('FVP contain Surface 保持视频原始宽高比', (WidgetTester tester) async {
+    platform.videoSize = const Size(640, 480);
+    final UnifiedVideoState state = await adapter.open(
+      VideoSource.network('https://example.com/video-4x3.mp4'),
+      const UnifiedVideoState(),
+    );
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Center(
+          child: SizedBox(
+            width: 320,
+            height: 180,
+            child: adapter.buildSurface(_UnusedBuildContext(), state),
+          ),
+        ),
+      ),
+    );
+
+    final RenderBox surface = tester.renderObject(
+      find.byKey(const ValueKey<String>('recording-video-surface')),
+    );
+    final Offset topLeft = surface.localToGlobal(Offset.zero);
+    final Offset bottomRight = surface.localToGlobal(
+      surface.size.bottomRight(Offset.zero),
+    );
+    final Size renderedSize = Size(
+      bottomRight.dx - topLeft.dx,
+      bottomRight.dy - topLeft.dy,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.runAsync(adapter.dispose);
+
+    expect(renderedSize.width, closeTo(240, 0.001));
+    expect(renderedSize.height, closeTo(180, 0.001));
+  });
+
   test('FVP adapter dispose 释放内部 VideoPlayerController', () async {
     await adapter.open(
       VideoSource.network('https://example.com/video.mp4'),
@@ -167,6 +199,7 @@ class _RecordingVideoPlayerPlatform extends VideoPlayerPlatform {
   final Map<int, StreamController<VideoEvent>> _streams =
       <int, StreamController<VideoEvent>>{};
   int _nextPlayerId = 1;
+  Size videoSize = const Size(1920, 1080);
 
   @override
   Future<void> init() async {
@@ -192,7 +225,7 @@ class _RecordingVideoPlayerPlatform extends VideoPlayerPlatform {
         VideoEvent(
           eventType: VideoEventType.initialized,
           duration: const Duration(minutes: 2),
-          size: const Size(1920, 1080),
+          size: videoSize,
         ),
       );
     });

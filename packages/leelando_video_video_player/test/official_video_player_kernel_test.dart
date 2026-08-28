@@ -41,6 +41,54 @@ void main() {
     expect(state.volume, 0.35);
     expect(platform.calls, contains('volume:0.35'));
   });
+
+  testWidgets('官方内核 contain Surface 保持视频原始宽高比', (WidgetTester tester) async {
+    final VideoPlayerPlatform previousPlatform = VideoPlayerPlatform.instance;
+    final _RecordingVideoPlayerPlatform platform =
+        _RecordingVideoPlayerPlatform()..videoSize = const Size(640, 480);
+    VideoPlayerPlatform.instance = platform;
+    addTearDown(() => VideoPlayerPlatform.instance = previousPlatform);
+    final VideoKernelAdapter adapter = createOfficialVideoPlayerKernel()
+        .create();
+    addTearDown(adapter.dispose);
+
+    await adapter.initialize();
+    final UnifiedVideoState state = await adapter.open(
+      VideoSource.network('https://example.com/video-4x3.mp4'),
+      const UnifiedVideoState(),
+    );
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Center(
+          child: Builder(
+            builder: (BuildContext context) => SizedBox(
+              width: 320,
+              height: 180,
+              child: adapter.buildSurface(context, state),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final RenderBox surface = tester.renderObject(
+      find.byKey(const ValueKey<String>('recording-video-surface')),
+    );
+    final Offset topLeft = surface.localToGlobal(Offset.zero);
+    final Offset bottomRight = surface.localToGlobal(
+      surface.size.bottomRight(Offset.zero),
+    );
+    final Size renderedSize = Size(
+      bottomRight.dx - topLeft.dx,
+      bottomRight.dy - topLeft.dy,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.runAsync(adapter.dispose);
+
+    expect(renderedSize.width, closeTo(240, 0.001));
+    expect(renderedSize.height, closeTo(180, 0.001));
+  });
 }
 
 class _RecordingVideoPlayerPlatform extends VideoPlayerPlatform {
@@ -48,6 +96,7 @@ class _RecordingVideoPlayerPlatform extends VideoPlayerPlatform {
   final Map<int, StreamController<VideoEvent>> _streams =
       <int, StreamController<VideoEvent>>{};
   int _nextPlayerId = 1;
+  Size videoSize = const Size(1920, 1080);
 
   @override
   Future<void> init() async {}
@@ -67,7 +116,7 @@ class _RecordingVideoPlayerPlatform extends VideoPlayerPlatform {
         VideoEvent(
           eventType: VideoEventType.initialized,
           duration: const Duration(minutes: 2),
-          size: const Size(1920, 1080),
+          size: videoSize,
         ),
       );
     });
@@ -101,4 +150,9 @@ class _RecordingVideoPlayerPlatform extends VideoPlayerPlatform {
     int playerId,
     bool preventsDisplaySleepDuringVideoPlayback,
   ) async {}
+
+  @override
+  Widget buildView(int playerId) {
+    return const SizedBox(key: ValueKey<String>('recording-video-surface'));
+  }
 }
