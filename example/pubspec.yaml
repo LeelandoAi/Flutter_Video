@@ -10,8 +10,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  leelando_video: ^1.0.0
-  leelando_video_all: ^1.0.0
+  leelando_video: ^1.0.1
+  leelando_video_all: ^1.0.1
 
 dev_dependencies:
   flutter_test:

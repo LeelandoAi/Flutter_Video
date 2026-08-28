@@ -19,6 +19,61 @@ enum UnifiedVideoPlatform { android, ios, windows, macos, web, linux, unknown }
 
 enum UnifiedVideoFullscreenOrientation { landscape, portrait, auto }
 
+/// 播放内核上报的实际显示尺寸。
+///
+/// 宽高应当已经应用视频自身的旋转校正，因此可直接用于判断画面方向。
+class VideoDimensions {
+  const VideoDimensions({required this.width, required this.height});
+
+  final double width;
+  final double height;
+
+  bool get isValid =>
+      width.isFinite && height.isFinite && width > 0 && height > 0;
+
+  @override
+  bool operator ==(Object other) {
+    return other is VideoDimensions &&
+        other.width == width &&
+        other.height == height;
+  }
+
+  @override
+  int get hashCode => Object.hash(width, height);
+
+  @override
+  String toString() => 'VideoDimensions($width x $height)';
+}
+
+/// 解析播放器真正进入全屏时应使用的方向。
+///
+/// Android 与 iOS 的 `auto` 使用内核上报的真实尺寸；桌面端继续使用
+/// 外部传入的播放器比例，保持原有行为。
+UnifiedVideoFullscreenOrientation resolveUnifiedVideoFullscreenOrientation({
+  required UnifiedVideoFullscreenOrientation configuredOrientation,
+  required UnifiedVideoPlatform platform,
+  required double aspectRatio,
+  VideoDimensions? videoDimensions,
+}) {
+  if (configuredOrientation != UnifiedVideoFullscreenOrientation.auto) {
+    return configuredOrientation;
+  }
+  final bool isMobile =
+      platform == UnifiedVideoPlatform.android ||
+      platform == UnifiedVideoPlatform.ios;
+  if (isMobile) {
+    if (videoDimensions == null || !videoDimensions.isValid) {
+      return UnifiedVideoFullscreenOrientation.portrait;
+    }
+    return videoDimensions.width > videoDimensions.height
+        ? UnifiedVideoFullscreenOrientation.landscape
+        : UnifiedVideoFullscreenOrientation.portrait;
+  }
+  return aspectRatio < 1
+      ? UnifiedVideoFullscreenOrientation.portrait
+      : UnifiedVideoFullscreenOrientation.landscape;
+}
+
 enum UnifiedVideoFit { original, ratio16x9, ratio4x3, contain, fill, cover }
 
 enum UnifiedVideoErrorCode {
@@ -192,6 +247,7 @@ class UnifiedVideoState {
     this.speed = 1.0,
     this.volume = 1.0,
     this.fullscreen = false,
+    this.videoDimensions,
     this.tracks = const <VideoTrack>[],
     this.error,
     this.targetKernelId,
@@ -209,6 +265,7 @@ class UnifiedVideoState {
   final double speed;
   final double volume;
   final bool fullscreen;
+  final VideoDimensions? videoDimensions;
   final List<VideoTrack> tracks;
   final UnifiedVideoError? error;
   final String? targetKernelId;
@@ -231,6 +288,8 @@ class UnifiedVideoState {
     double? speed,
     double? volume,
     bool? fullscreen,
+    VideoDimensions? videoDimensions,
+    bool clearVideoDimensions = false,
     List<VideoTrack>? tracks,
     UnifiedVideoError? error,
     bool clearError = false,
@@ -253,6 +312,9 @@ class UnifiedVideoState {
       speed: speed ?? this.speed,
       volume: volume ?? this.volume,
       fullscreen: fullscreen ?? this.fullscreen,
+      videoDimensions: clearVideoDimensions
+          ? null
+          : videoDimensions ?? this.videoDimensions,
       tracks: tracks ?? this.tracks,
       error: clearError ? null : error ?? this.error,
       targetKernelId: clearTargetKernelId

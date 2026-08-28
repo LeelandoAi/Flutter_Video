@@ -1,5 +1,12 @@
 # 更新日志
 
+## 1.0.1 - 2026-08-28
+
+- 新增 `VideoDimensions` 与 `UnifiedVideoState.videoDimensions`，由播放内核持续上报应用旋转校正后的真实视频宽高。
+- Android、iOS 的 `fullscreenOrientation.auto` 改为按真实视频宽高选择方向：竖屏视频进竖屏全屏，横屏视频进横屏全屏，正方形或尺寸未知时默认竖屏。
+- macOS、Windows 等桌面端继续按外部 `aspectRatio` 判断自动全屏方向，保持 1.0.0 行为。
+- 打开新播放源时清除旧尺寸，切换内核后采用目标内核上报的尺寸，避免方向状态串片。
+
 ## 1.0.0 - 2026-08-28
 
 - 移动端播放器新增 `landscape`、`portrait` 和 `auto` 全屏方向配置；9:16 短剧可竖屏全屏，并可在全屏内切换横竖方向而不重建播放 Surface。

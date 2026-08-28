@@ -173,28 +173,7 @@ final class MediaKitVideoKernelAdapter extends VideoKernelAdapter {
     UnifiedVideoState state, [
     UnifiedVideoLifecycle? lifecycle,
   ]) {
-    final mk.Player player = _requirePlayer();
-    final mk.PlayerState value = player.state;
-    final UnifiedVideoLifecycle resolvedLifecycle =
-        lifecycle ??
-        (value.completed
-            ? UnifiedVideoLifecycle.ended
-            : value.buffering
-            ? UnifiedVideoLifecycle.buffering
-            : value.playing
-            ? UnifiedVideoLifecycle.playing
-            : state.lifecycle);
-    return state.copyWith(
-      lifecycle: resolvedLifecycle,
-      duration: value.duration,
-      position: value.position,
-      buffered: <BufferedRange>[
-        if (value.buffer > Duration.zero)
-          BufferedRange(start: Duration.zero, end: value.buffer),
-      ],
-      speed: value.rate,
-      clearError: true,
-    );
+    return mediaKitStateFromPlayer(state, _requirePlayer().state, lifecycle);
   }
 
   BoxFit _boxFitFor(UnifiedVideoFit fit) {

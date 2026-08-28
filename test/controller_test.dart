@@ -293,6 +293,111 @@ void main() {
     expect(player.value.fullscreen, isTrue);
   });
 
+  test('切换内核后采用目标内核上报的真实视频尺寸', () async {
+    const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
+      id: 'portrait-size',
+      displayName: '竖屏尺寸内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    const VideoKernelDescriptor secondDescriptor = VideoKernelDescriptor(
+      id: 'landscape-size',
+      displayName: '横屏尺寸内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(
+          descriptor: firstDescriptor,
+          create: () => _DimensionsVideoKernelAdapter(
+            firstDescriptor,
+            const VideoDimensions(width: 1080, height: 1920),
+          ),
+        ),
+        RegisteredVideoKernel(
+          descriptor: secondDescriptor,
+          create: () => _DimensionsVideoKernelAdapter(
+            secondDescriptor,
+            const VideoDimensions(width: 1920, height: 1080),
+          ),
+        ),
+      ],
+      preference: KernelPreference.exact(firstDescriptor.id),
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    expect(
+      player.value.videoDimensions,
+      const VideoDimensions(width: 1080, height: 1920),
+    );
+
+    await player.switchKernel(secondDescriptor.id);
+
+    expect(
+      player.value.videoDimensions,
+      const VideoDimensions(width: 1920, height: 1080),
+    );
+  });
+
+  test('目标内核尚未上报尺寸时不沿用原内核尺寸', () async {
+    const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
+      id: 'known-size',
+      displayName: '已知尺寸内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    const VideoKernelDescriptor secondDescriptor = VideoKernelDescriptor(
+      id: 'unknown-size',
+      displayName: '未知尺寸内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(
+          descriptor: firstDescriptor,
+          create: () => _DimensionsVideoKernelAdapter(
+            firstDescriptor,
+            const VideoDimensions(width: 1080, height: 1920),
+          ),
+        ),
+        RegisteredVideoKernel(
+          descriptor: secondDescriptor,
+          create: () => FakeVideoKernelAdapter(descriptor: secondDescriptor),
+        ),
+      ],
+      preference: KernelPreference.exact(firstDescriptor.id),
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    await player.switchKernel(secondDescriptor.id);
+
+    expect(player.value.videoDimensions, isNull);
+  });
+
+  test('打开新播放源时先清除上一条视频的真实尺寸', () async {
+    final UnifiedVideoController player = controller(
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    player.value = player.value.copyWith(
+      videoDimensions: const VideoDimensions(width: 1080, height: 1920),
+    );
+
+    await player.open(
+      VideoSource.network('https://example.com/unknown-size.mp4'),
+    );
+
+    expect(player.value.videoDimensions, isNull);
+  });
+
   test('切换内核按事务顺序释放并恢复适配器状态', () async {
     const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
       id: 'first',
@@ -1599,6 +1704,24 @@ Future<void> _expectInaccurateSeekRollsBack({
   expect(inaccurateAdapter.snapshotAttempts, 20);
   expect(player.value.activeKernelId, 'stable');
   expect(player.value.position, const Duration(minutes: 3));
+}
+
+class _DimensionsVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _DimensionsVideoKernelAdapter(
+    VideoKernelDescriptor descriptor,
+    this.dimensions,
+  ) : super(descriptor: descriptor);
+
+  final VideoDimensions dimensions;
+
+  @override
+  Future<UnifiedVideoState> open(
+    VideoSource source,
+    UnifiedVideoState state,
+  ) async {
+    final UnifiedVideoState opened = await super.open(source, state);
+    return opened.copyWith(videoDimensions: dimensions);
+  }
 }
 
 class _LoggingVideoKernelAdapter extends FakeVideoKernelAdapter {

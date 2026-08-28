@@ -29,6 +29,7 @@ void main() {
     double aspectRatio = 16 / 9,
     UnifiedVideoFullscreenOrientation fullscreenOrientation =
         UnifiedVideoFullscreenOrientation.landscape,
+    VideoDimensions? videoDimensions,
   }) async {
     tester.view.physicalSize = viewSize;
     tester.view.devicePixelRatio = 1;
@@ -53,6 +54,11 @@ void main() {
         metadata: const VideoMetadata(title: '测试影片'),
       ),
     );
+    if (videoDimensions != null) {
+      controller.value = controller.value.copyWith(
+        videoDimensions: videoDimensions,
+      );
+    }
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -2594,7 +2600,9 @@ void main() {
     expect(controller.value.fullscreen, isTrue);
   });
 
-  testWidgets('9:16 短剧 auto 全屏进入竖屏', (WidgetTester tester) async {
+  testWidgets('手机端外部固定 16:9 时 auto 仍按真实 9:16 尺寸进入竖屏', (
+    WidgetTester tester,
+  ) async {
     final List<List<Object?>> orientationCalls = <List<Object?>>[];
     final TestDefaultBinaryMessenger messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -2612,8 +2620,9 @@ void main() {
     final UnifiedVideoController controller = await pumpPlayer(
       tester,
       viewSize: const Size(393, 852),
-      aspectRatio: 9 / 16,
+      aspectRatio: 16 / 9,
       fullscreenOrientation: UnifiedVideoFullscreenOrientation.auto,
+      videoDimensions: const VideoDimensions(width: 1080, height: 1920),
     );
 
     await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));

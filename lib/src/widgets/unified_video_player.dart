@@ -321,13 +321,12 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
   }
 
   UnifiedVideoFullscreenOrientation _resolvedFullscreenOrientation() {
-    if (widget.fullscreenOrientation !=
-        UnifiedVideoFullscreenOrientation.auto) {
-      return widget.fullscreenOrientation;
-    }
-    return widget.aspectRatio < 1
-        ? UnifiedVideoFullscreenOrientation.portrait
-        : UnifiedVideoFullscreenOrientation.landscape;
+    return resolveUnifiedVideoFullscreenOrientation(
+      configuredOrientation: widget.fullscreenOrientation,
+      platform: widget.controller.platform,
+      aspectRatio: widget.aspectRatio,
+      videoDimensions: widget.controller.value.videoDimensions,
+    );
   }
 
   bool get _isMobilePlatform =>

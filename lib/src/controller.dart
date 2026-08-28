@@ -202,6 +202,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     value = value.copyWith(
       lifecycle: UnifiedVideoLifecycle.opening,
       source: source,
+      clearVideoDimensions: true,
       clearError: true,
     );
 
@@ -369,6 +370,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
         fallbackHistory: const <String>[],
         clearSource: true,
         clearActiveKernelId: true,
+        clearVideoDimensions: true,
         clearTargetKernelId: true,
         clearError: true,
       ),
@@ -543,6 +545,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
       value.copyWith(
         lifecycle: UnifiedVideoLifecycle.switchingKernel,
         targetKernelId: kernelId,
+        clearVideoDimensions: true,
         clearError: true,
         clearLastKernelSwitchError: true,
       ),

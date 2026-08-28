@@ -35,12 +35,17 @@ class FvpVideoKernelAdapter extends VideoKernelAdapter {
     await _controller?.dispose();
     _controller = _createController(source);
     await _controller!.initialize();
+    final VideoDimensions? videoDimensions = _videoDimensions(
+      _controller!.value,
+    );
     return state.copyWith(
       lifecycle: UnifiedVideoLifecycle.ready,
       source: source,
       activeKernelId: descriptor.id,
       duration: _controller!.value.duration,
       position: _controller!.value.position,
+      videoDimensions: videoDimensions,
+      clearVideoDimensions: videoDimensions == null,
       clearError: true,
     );
   }
@@ -148,6 +153,19 @@ class FvpVideoKernelAdapter extends VideoKernelAdapter {
     return value.rotationCorrection % 180 == 0 ? aspectRatio : 1 / aspectRatio;
   }
 
+  VideoDimensions? _videoDimensions(VideoPlayerValue value) {
+    final Size size = value.size;
+    if (!size.width.isFinite ||
+        !size.height.isFinite ||
+        size.width <= 0 ||
+        size.height <= 0) {
+      return null;
+    }
+    return value.rotationCorrection % 180 == 0
+        ? VideoDimensions(width: size.width, height: size.height)
+        : VideoDimensions(width: size.height, height: size.width);
+  }
+
   BoxFit _boxFitFor(UnifiedVideoFit fit) {
     switch (fit) {
       case UnifiedVideoFit.original:
@@ -200,10 +218,13 @@ class FvpVideoKernelAdapter extends VideoKernelAdapter {
             : value.isPlaying
             ? UnifiedVideoLifecycle.playing
             : state.lifecycle);
+    final VideoDimensions? videoDimensions = _videoDimensions(value);
     return state.copyWith(
       lifecycle: resolvedLifecycle,
       duration: value.duration,
       position: value.position,
+      videoDimensions: videoDimensions,
+      clearVideoDimensions: videoDimensions == null,
       buffered: value.buffered
           .map(
             (DurationRange range) =>

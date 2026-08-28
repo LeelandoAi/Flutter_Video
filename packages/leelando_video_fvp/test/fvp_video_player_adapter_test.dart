@@ -43,6 +43,10 @@ void main() {
     expect(state.lifecycle, UnifiedVideoLifecycle.ready);
     expect(state.activeKernelId, 'fvp');
     expect(state.duration, const Duration(minutes: 2));
+    expect(
+      state.videoDimensions,
+      const VideoDimensions(width: 1920, height: 1080),
+    );
     expect(platform.sources.single.uri, 'https://example.com/video.mp4');
     expect(platform.sources.single.httpHeaders, <String, String>{
       'Authorization': 'token',
@@ -78,6 +82,21 @@ void main() {
         'pause',
         'seek:0',
       ]),
+    );
+  });
+
+  test('FVP 上报考虑旋转校正后的真实视频尺寸', () async {
+    platform.videoSize = const Size(1920, 1080);
+    platform.rotationCorrection = 90;
+
+    final UnifiedVideoState state = await adapter.open(
+      VideoSource.network('https://example.com/rotated-short.mp4'),
+      const UnifiedVideoState(),
+    );
+
+    expect(
+      state.videoDimensions,
+      const VideoDimensions(width: 1080, height: 1920),
     );
   });
 
@@ -200,6 +219,7 @@ class _RecordingVideoPlayerPlatform extends VideoPlayerPlatform {
       <int, StreamController<VideoEvent>>{};
   int _nextPlayerId = 1;
   Size videoSize = const Size(1920, 1080);
+  int rotationCorrection = 0;
 
   @override
   Future<void> init() async {
@@ -226,6 +246,7 @@ class _RecordingVideoPlayerPlatform extends VideoPlayerPlatform {
           eventType: VideoEventType.initialized,
           duration: const Duration(minutes: 2),
           size: videoSize,
+          rotationCorrection: rotationCorrection,
         ),
       );
     });

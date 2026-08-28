@@ -12,9 +12,9 @@
 
 ```yaml
 dependencies:
-  leelando_video: ^1.0.0
-  leelando_video_media_kit: ^1.0.0
-  leelando_video_video_player: ^1.0.0
+  leelando_video: ^1.0.1
+  leelando_video_media_kit: ^1.0.1
+  leelando_video_video_player: ^1.0.1
 ```
 
 ```dart
@@ -36,7 +36,7 @@ final registry = VideoKernelRegistry(
 
 ```yaml
 dependencies:
-  leelando_video_all: ^1.0.0
+  leelando_video_all: ^1.0.1
 ```
 
 ```dart
@@ -53,7 +53,7 @@ final registry = VideoKernelRegistry(kernels: createAllVideoKernels());
 
 ```yaml
 dependencies:
-  leelando_video: ^1.0.0
+  leelando_video: ^1.0.1
 ```
 
 ```dart
@@ -271,12 +271,12 @@ UnifiedVideoPlayer(
 
 ### 移动端全屏方向
 
-`fullscreenOrientation` 控制 Android 与 iOS 的全屏方向，默认值为 `landscape`，因此现有横屏全屏行为不变。短剧播放器可以使用 `portrait` 固定竖屏，或使用 `auto` 按 `aspectRatio` 自动判断：小于 `1` 时进入竖屏，否则进入横屏。
+`fullscreenOrientation` 控制全屏方向，默认值为 `landscape`，因此现有横屏全屏行为不变。Android 与 iOS 使用 `auto` 时会读取当前内核上报的真实视频宽高：宽小于高进入竖屏，宽大于高进入横屏，正方形或尚未取得尺寸时默认竖屏。macOS、Windows 等桌面端仍按外部 `aspectRatio` 判断，保持原有逻辑。
 
 ```dart
 UnifiedVideoPlayer(
   controller: controller,
-  aspectRatio: 9 / 16,
+  aspectRatio: 16 / 9, // 嵌入业务页仍可保持固定比例
   fullscreenOrientation: UnifiedVideoFullscreenOrientation.auto,
 )
 ```

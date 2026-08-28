@@ -42,6 +42,30 @@ void main() {
     expect(platform.calls, contains('volume:0.35'));
   });
 
+  test('官方内核上报考虑旋转校正后的真实视频尺寸', () async {
+    final VideoPlayerPlatform previousPlatform = VideoPlayerPlatform.instance;
+    final _RecordingVideoPlayerPlatform platform =
+        _RecordingVideoPlayerPlatform()
+          ..videoSize = const Size(1920, 1080)
+          ..rotationCorrection = 90;
+    VideoPlayerPlatform.instance = platform;
+    addTearDown(() => VideoPlayerPlatform.instance = previousPlatform);
+    final VideoKernelAdapter adapter = createOfficialVideoPlayerKernel()
+        .create();
+    addTearDown(adapter.dispose);
+
+    await adapter.initialize();
+    final UnifiedVideoState state = await adapter.open(
+      VideoSource.network('https://example.com/rotated-short.mp4'),
+      const UnifiedVideoState(),
+    );
+
+    expect(
+      state.videoDimensions,
+      const VideoDimensions(width: 1080, height: 1920),
+    );
+  });
+
   testWidgets('官方内核 contain Surface 保持视频原始宽高比', (WidgetTester tester) async {
     final VideoPlayerPlatform previousPlatform = VideoPlayerPlatform.instance;
     final _RecordingVideoPlayerPlatform platform =
@@ -97,6 +121,7 @@ class _RecordingVideoPlayerPlatform extends VideoPlayerPlatform {
       <int, StreamController<VideoEvent>>{};
   int _nextPlayerId = 1;
   Size videoSize = const Size(1920, 1080);
+  int rotationCorrection = 0;
 
   @override
   Future<void> init() async {}
@@ -117,6 +142,7 @@ class _RecordingVideoPlayerPlatform extends VideoPlayerPlatform {
           eventType: VideoEventType.initialized,
           duration: const Duration(minutes: 2),
           size: videoSize,
+          rotationCorrection: rotationCorrection,
         ),
       );
     });
