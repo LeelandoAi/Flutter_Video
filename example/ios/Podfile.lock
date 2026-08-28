@@ -1,6 +1,4 @@
 PODS:
-  - erika_flutter (0.1.7):
-    - Flutter
   - Flutter (1.0.0)
   - fvp (0.38.1):
     - Flutter
@@ -22,7 +20,6 @@ PODS:
     - Flutter
 
 DEPENDENCIES:
-  - erika_flutter (from `.symlinks/plugins/erika_flutter/ios`)
   - Flutter (from `Flutter`)
   - fvp (from `.symlinks/plugins/fvp/darwin`)
   - leelando_video (from `.symlinks/plugins/leelando_video/ios`)
@@ -37,8 +34,6 @@ SPEC REPOS:
     - mdk
 
 EXTERNAL SOURCES:
-  erika_flutter:
-    :path: ".symlinks/plugins/erika_flutter/ios"
   Flutter:
     :path: Flutter
   fvp:
@@ -57,7 +52,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/wakelock_plus/ios"
 
 SPEC CHECKSUMS:
-  erika_flutter: 4ce9e5e6ed2c74195dc54ee64ef4c6f67df9476d
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   fvp: 3b8bd5288c31057debb408b58d009f1ca10074f4
   leelando_video: 84a602f32668e7c2586e438743fc98c09bff18de

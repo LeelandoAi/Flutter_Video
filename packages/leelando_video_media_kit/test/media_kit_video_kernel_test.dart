@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:leelando_video/leelando_video.dart';
-import 'package:leelando_video_erika/leelando_video_erika.dart';
 import 'package:leelando_video_fvp/leelando_video_fvp.dart';
 import 'package:leelando_video_media_kit/leelando_video_media_kit.dart';
 import 'package:leelando_video_video_player/leelando_video_video_player.dart';
@@ -29,10 +28,9 @@ void main() {
     expect(adapter.runtimeGroup, isNull);
   });
 
-  test('Erika、MediaKit、FVP 与官方内核可同时注册', () {
+  test('MediaKit、FVP 与官方内核可同时注册', () {
     final VideoKernelRegistry registry = VideoKernelRegistry(
       kernels: <RegisteredVideoKernel>[
-        createErikaVideoKernel(),
         createMediaKitVideoKernel(),
         createFvpVideoKernel(),
         createOfficialVideoPlayerKernel(),
@@ -41,7 +39,7 @@ void main() {
 
     expect(
       registry.descriptors.map((VideoKernelDescriptor item) => item.id),
-      <String>['erika', 'media-kit', 'fvp', 'video-player'],
+      <String>['media-kit', 'fvp', 'video-player'],
     );
   });
 }

@@ -14,7 +14,9 @@ class FvpVideoKernelAdapter extends VideoKernelAdapter {
 
   @override
   Future<void> activateRuntime() async {
-    fvp.registerWith();
+    fvp.registerWith(
+      options: createFvpRuntimeOptions(currentUnifiedVideoPlatform()),
+    );
   }
 
   @override

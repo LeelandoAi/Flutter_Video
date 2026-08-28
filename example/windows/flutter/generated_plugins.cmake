@@ -3,7 +3,6 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
-  erika_flutter
   fvp
   leelando_video
   media_kit_libs_windows_video

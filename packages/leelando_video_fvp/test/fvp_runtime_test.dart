@@ -24,6 +24,17 @@ void main() {
     });
   });
 
+  test('Android FVP 使用软件解码器避免切换 Surface 后硬解黑屏', () {
+    expect(
+      createFvpRuntimeOptions(UnifiedVideoPlatform.android),
+      <String, Object>{
+        'video.decoders': <String>['FFmpeg', 'dav1d'],
+      },
+    );
+    expect(createFvpRuntimeOptions(UnifiedVideoPlatform.ios), isNull);
+    expect(createFvpRuntimeOptions(UnifiedVideoPlatform.macos), isNull);
+  });
+
   test('FVP 与官方适配器可注册并按同一 View 串行交接', () {
     fakeAsync((FakeAsync async) {
       final registry = VideoKernelRegistry(

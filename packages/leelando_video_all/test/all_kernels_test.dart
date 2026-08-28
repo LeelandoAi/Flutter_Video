@@ -2,10 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:leelando_video_all/leelando_video_all.dart';
 
 void main() {
-  test('全量工厂按稳定顺序返回四个真实内核', () {
+  test('全量工厂按稳定顺序返回三个真实内核', () {
     expect(
       createAllVideoKernels().map((kernel) => kernel.descriptor.id),
-      <String>['erika', 'media-kit', 'fvp', 'video-player'],
+      <String>['media-kit', 'fvp', 'video-player'],
     );
   });
 
@@ -21,13 +21,12 @@ void main() {
         .map((RegisteredVideoKernel kernel) => kernel.descriptor.id)
         .toList();
 
-    expect(ids.toSet(), hasLength(4));
+    expect(ids.toSet(), hasLength(3));
   });
 
-  test('四个公开内核工厂可同时注册', () {
+  test('三个公开内核工厂可同时注册', () {
     final VideoKernelRegistry registry = VideoKernelRegistry(
       kernels: <RegisteredVideoKernel>[
-        createErikaVideoKernel(),
         createMediaKitVideoKernel(),
         createFvpVideoKernel(),
         createOfficialVideoPlayerKernel(),
@@ -35,7 +34,6 @@ void main() {
     );
 
     expect(registry.descriptors.map((descriptor) => descriptor.id), <String>[
-      'erika',
       'media-kit',
       'fvp',
       'video-player',

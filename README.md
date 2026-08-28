@@ -1,6 +1,6 @@
 # Leelando Video
 
-一个面向 Android、iOS、Windows、macOS 的统一聚合影视播放器库。当前实现已落地核心 API、内核抽象、默认播放器 UI、fake 测试内核、Media Kit/libmpv 适配器、FVP/libmdk 适配器、官方 Video Player 适配器和 Erika/Rust Renderer 适配器。
+一个面向 Android、iOS、Windows、macOS 的统一聚合影视播放器库。当前实现已落地核心 API、内核抽象、默认播放器 UI、fake 测试内核、Media Kit/libmpv 适配器、FVP/libmdk 适配器和官方 Video Player 适配器。
 
 ## 安装与内核选择
 
@@ -8,13 +8,13 @@
 
 ### 路径一：核心包加按需内核包
 
-适合控制包体和原生依赖范围的应用。下面示例只安装 Media Kit 与官方 Video Player；可按同样方式加入 `leelando_video_fvp` 或 `leelando_video_erika`。
+适合控制包体和原生依赖范围的应用。下面示例只安装 Media Kit 与官方 Video Player；可按同样方式加入 `leelando_video_fvp`。
 
 ```yaml
 dependencies:
-  leelando_video: ^0.2.0
-  leelando_video_media_kit: ^0.2.0
-  leelando_video_video_player: ^0.2.0
+  leelando_video: ^0.3.0
+  leelando_video_media_kit: ^0.3.0
+  leelando_video_video_player: ^0.3.0
 ```
 
 ```dart
@@ -32,11 +32,11 @@ final registry = VideoKernelRegistry(
 
 ### 路径二：全量 `leelando_video_all` 包
 
-适合需要一次启用全部官方适配器的示例或应用。`leelando_video_all` 的公共入口同时导出核心 API 和四个内核，并提供稳定顺序的全量工厂函数。
+适合需要一次启用全部官方适配器的示例或应用。`leelando_video_all` 的公共入口同时导出核心 API 和三个内核，并提供稳定顺序的全量工厂函数。
 
 ```yaml
 dependencies:
-  leelando_video_all: ^0.2.0
+  leelando_video_all: ^0.3.0
 ```
 
 ```dart
@@ -45,7 +45,7 @@ import 'package:leelando_video_all/leelando_video_all.dart';
 final registry = VideoKernelRegistry(kernels: createAllVideoKernels());
 ```
 
-`createAllVideoKernels()` 固定返回 `erika`、`media-kit`、`fvp`、`video-player`，便于 Demo 和菜单展示一致的内核顺序。
+`createAllVideoKernels()` 固定返回 `media-kit`、`fvp`、`video-player`，便于 Demo 和菜单展示一致的内核顺序。
 
 ### 路径三：自定义适配器
 
@@ -53,7 +53,7 @@ final registry = VideoKernelRegistry(kernels: createAllVideoKernels());
 
 ```yaml
 dependencies:
-  leelando_video: ^0.2.0
+  leelando_video: ^0.3.0
 ```
 
 ```dart
@@ -355,15 +355,12 @@ WEBVTT
 | Media Kit / libmpv | 支持 | 支持 | 支持 | 支持 | 已实现基础播放适配 |
 | FVP / libmdk | 支持 | 支持 | 支持 | 支持 | 已实现基础播放适配，注册后会替换 `video_player` 平台实现 |
 | Flutter 官方 Video Player | 支持 | 支持 | 不支持 | 支持 | 已实现基础播放适配 |
-| Erika / Rust Renderer | 支持 | 支持 | 支持 | 支持 | 已接入 `erika_flutter`，`erika` 内核由 Erika 官方 Rust/原生后端打开播放源 |
 
-当前已完成的真实内核是 Media Kit/libmpv、FVP/libmdk、Flutter 官方 Video Player 和 Erika/Rust Renderer；Fake 只用于单元测试和 UI 验证。Erika 适配器直接封装 `erika_flutter` 的 `ErikaPlayer` 和 `ErikaVideoView`，播放、暂停、seek、倍速、画面承载和事件状态都来自 Erika 后端，不再委托 Media Kit。
+当前已完成的真实内核是 Media Kit/libmpv、FVP/libmdk 和 Flutter 官方 Video Player；Fake 只用于单元测试和 UI 验证。
 
-切换播放器内核是事务操作：控制器会保留当前播放源、播放进度、倍速、缩放、音量、播放/暂停和全屏状态；切到 Media Kit/Erika 这类打开后需要异步 ready 的后端时，会带起播点打开并重试 seek，避免从 0 秒重新播放。目标内核打开或恢复失败时，控制器会重新打开原内核并恢复同一份状态；只有原内核也恢复失败时才进入 `failed` 状态。
+切换播放器内核是事务操作：控制器会保留当前播放源、播放进度、倍速、缩放、音量、播放/暂停和全屏状态；切到打开后需要异步 ready 的后端时，会带起播点打开并重试 seek，避免从 0 秒重新播放。目标内核打开或恢复失败时，控制器会重新打开原内核并恢复同一份状态；只有原内核也恢复失败时才进入 `failed` 状态。
 
 FVP 会替换 `video_player` 平台实现，因此 FVP 与 Flutter 官方 Video Player 共享同一运行时组。同一个播放器视图在两者之间只能串行切换，控制器会在激活目标内核前释放前一内核并完成运行时交接；不要让不同播放器视图并发占用 FVP 和官方 `video_player`。
-
-Erika 构建依赖官方原生插件和 native library。首次构建会从 AimesSoft/Erika GitHub Releases 下载与 `erika_flutter` 版本匹配并经过 SHA-256 校验的预编译运行库，因此构建机必须能够访问 GitHub Release Assets；Flutter asset 播放会先复制到系统临时文件，再交给 Erika 以本地路径打开。
 
 ## 平台网络权限
 
@@ -410,7 +407,7 @@ import 'package:leelando_video_all/leelando_video_all.dart';
 final registry = VideoKernelRegistry(kernels: createAllVideoKernels());
 ```
 
-若采用按需安装，请把旧注册列表替换为对应包的工厂函数，例如 `createMediaKitVideoKernel()` 来自 `leelando_video_media_kit`，`createFvpVideoKernel()` 来自 `leelando_video_fvp`，`createOfficialVideoPlayerKernel()` 来自 `leelando_video_video_player`，`createErikaVideoKernel()` 来自 `leelando_video_erika`。移除旧的 Erika 占位工厂函数；0.2.0 不再提供占位内核。
+若采用按需安装，请把旧注册列表替换为对应包的工厂函数，例如 `createMediaKitVideoKernel()` 来自 `leelando_video_media_kit`，`createFvpVideoKernel()` 来自 `leelando_video_fvp`，`createOfficialVideoPlayerKernel()` 来自 `leelando_video_video_player`。
 
 已有业务应继续用 `VideoSource` 代替后端专属播放源参数，用 `UnifiedVideoController` 统一播放、暂停、跳转、音量、倍速、缩放和全屏，并用 `UnifiedVideoState` 替代后端专属状态流。切核失败时捕获 `KernelSwitchException`；状态中的 `lastKernelSwitchError` 会说明原内核是否已成功回滚。
 

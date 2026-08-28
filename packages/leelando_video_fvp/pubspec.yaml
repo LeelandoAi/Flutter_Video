@@ -1,6 +1,6 @@
 name: leelando_video_fvp
 description: 基于 FVP 和 libmdk 的 leelando_video 可插拔播放内核，覆盖移动端与桌面端的统一视频播放场景。
-version: 0.2.0
+version: 0.3.0
 resolution: workspace
 repository: https://github.com/LeelandoAi/Flutter_Video/tree/main/packages/leelando_video_fvp
 issue_tracker: https://github.com/LeelandoAi/Flutter_Video/issues
@@ -12,7 +12,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  leelando_video: ^0.2.0
+  leelando_video: ^0.3.0
   fvp: ^0.38.1
   video_player: ^2.14.0
   video_player_platform_interface: ^6.9.0
@@ -22,4 +22,4 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  leelando_video_video_player: ^0.2.0
+  leelando_video_video_player: ^0.3.0

@@ -6,8 +6,8 @@
 
 ```yaml
 dependencies:
-  leelando_video: ^0.2.0
-  leelando_video_media_kit: ^0.2.0
+  leelando_video: ^0.3.0
+  leelando_video_media_kit: ^0.3.0
 ```
 
 ## 注册

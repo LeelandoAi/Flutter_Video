@@ -1,6 +1,4 @@
 PODS:
-  - erika_flutter (0.1.7):
-    - FlutterMacOS
   - FlutterMacOS (1.0.0)
   - fvp (0.38.1):
     - Flutter
@@ -22,7 +20,6 @@ PODS:
     - FlutterMacOS
 
 DEPENDENCIES:
-  - erika_flutter (from `Flutter/ephemeral/.symlinks/plugins/erika_flutter/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - fvp (from `Flutter/ephemeral/.symlinks/plugins/fvp/darwin`)
   - leelando_video (from `Flutter/ephemeral/.symlinks/plugins/leelando_video/macos`)
@@ -37,8 +34,6 @@ SPEC REPOS:
     - mdk
 
 EXTERNAL SOURCES:
-  erika_flutter:
-    :path: Flutter/ephemeral/.symlinks/plugins/erika_flutter/macos
   FlutterMacOS:
     :path: Flutter/ephemeral
   fvp:
@@ -57,7 +52,6 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/wakelock_plus/macos
 
 SPEC CHECKSUMS:
-  erika_flutter: cf56de14ae433534eb51294a496a4f9ee313cb9c
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   fvp: 3b8bd5288c31057debb408b58d009f1ca10074f4
   leelando_video: 28638fe0e870478e30281272af4546b93dc1c0d7

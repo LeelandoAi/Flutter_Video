@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
-PACKAGES=". packages/leelando_video_erika packages/leelando_video_media_kit packages/leelando_video_fvp packages/leelando_video_video_player packages/leelando_video_all"
+PACKAGES=". packages/leelando_video_media_kit packages/leelando_video_fvp packages/leelando_video_video_player packages/leelando_video_all"
 
 cd "$ROOT"
 flutter analyze

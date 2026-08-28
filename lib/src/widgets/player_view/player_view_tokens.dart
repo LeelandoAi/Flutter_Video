@@ -19,6 +19,7 @@ class PlayerViewMetrics {
     required this.progressHeight,
     required this.iconSize,
     required this.primaryIconSize,
+    required this.showMore,
   });
 
   final PlayerViewMode mode;
@@ -28,9 +29,9 @@ class PlayerViewMetrics {
   final double progressHeight;
   final double iconSize;
   final double primaryIconSize;
+  final bool showMore;
 
   bool get showEpisodePicker => mode != PlayerViewMode.compact;
-  bool get showMore => mode != PlayerViewMode.compact;
 
   factory PlayerViewMetrics.resolve({
     required UnifiedVideoPlatform platform,
@@ -63,6 +64,7 @@ class PlayerViewMetrics {
           progressHeight: 2,
           iconSize: 17,
           primaryIconSize: 23,
+          showMore: !desktop,
         );
       case PlayerViewMode.expanded:
         return PlayerViewMetrics(
@@ -73,6 +75,7 @@ class PlayerViewMetrics {
           progressHeight: 3,
           iconSize: 21,
           primaryIconSize: 29,
+          showMore: true,
         );
       case PlayerViewMode.wide:
         return const PlayerViewMetrics(
@@ -83,6 +86,7 @@ class PlayerViewMetrics {
           progressHeight: 3,
           iconSize: 21,
           primaryIconSize: 29,
+          showMore: true,
         );
     }
   }

@@ -14,6 +14,15 @@ RegisteredVideoKernel createFvpVideoKernel() {
   );
 }
 
+Map<String, Object>? createFvpRuntimeOptions(UnifiedVideoPlatform platform) {
+  if (platform != UnifiedVideoPlatform.android) {
+    return null;
+  }
+  return <String, Object>{
+    'video.decoders': const <String>['FFmpeg', 'dav1d'],
+  };
+}
+
 const VideoKernelDescriptor fvpVideoKernelDescriptor = VideoKernelDescriptor(
   id: 'fvp',
   displayName: 'FVP / libmdk',

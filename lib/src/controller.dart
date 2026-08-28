@@ -710,6 +710,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
       source,
       fallbackHistory: const <String>[],
       generation: generation,
+      openPosition: Duration.zero,
     );
   }
 
@@ -719,6 +720,7 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     required List<String> fallbackHistory,
     required int generation,
     int? openRequestGeneration,
+    Duration? openPosition,
   }) async {
     final VideoKernelAdapter adapter = kernel.create();
     VideoKernelRuntimeLease? lease;
@@ -753,7 +755,10 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
         await _discardAdapterAfterCancellation(adapter, lease);
         return false;
       }
-      final UnifiedVideoState next = await adapter.open(source, value);
+      final UnifiedVideoState next = await adapter.open(
+        source,
+        openPosition == null ? value : value.copyWith(position: openPosition),
+      );
       if (!_commitAsyncState(
         next,
         generation,
@@ -853,11 +858,15 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
       throw StateError('切换内核前必须先打开播放源。');
     }
     final UnifiedVideoState snapshot = await _requireAdapter().snapshot(value);
+    final bool isAtEnd =
+        snapshot.lifecycle == UnifiedVideoLifecycle.ended ||
+        (snapshot.duration > Duration.zero &&
+            snapshot.position >= snapshot.duration);
     return _KernelSwitchSnapshot(
       source: snapshot.source ?? source,
       kernelId: kernelId,
-      position: snapshot.position,
-      wasPlaying: snapshot.isPlaying,
+      position: isAtEnd ? Duration.zero : snapshot.position,
+      wasPlaying: !isAtEnd && snapshot.isPlaying,
       speed: snapshot.speed,
       fit: snapshot.fit,
       volume: snapshot.volume,
@@ -924,30 +933,46 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
   }
 
   Future<bool> _restorePosition(Duration position, int generation) async {
+    if (position == Duration.zero &&
+        value.position <= const Duration(seconds: 1)) {
+      return _canCommitAsyncState(generation);
+    }
+
+    await _seek(position);
+    if (!_canCommitAsyncState(generation)) {
+      return false;
+    }
+    bool retriedAfterDurationKnown = value.duration > Duration.zero;
+
     Object? lastError;
-    for (int attempt = 0; attempt < 6; attempt++) {
+    for (int attempt = 0; attempt < 20; attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      if (!_canCommitAsyncState(generation)) {
+        return false;
+      }
       try {
-        await _seek(position);
-        if (!_canCommitAsyncState(generation)) {
-          return false;
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 120));
-        if (!_canCommitAsyncState(generation)) {
-          return false;
-        }
         if (!await _refreshAdapterStateForOperation(generation)) {
           return false;
         }
+        lastError = null;
         final int driftMs = (value.position - position).inMilliseconds.abs();
         if (driftMs <= 1000) {
           return true;
         }
+        if (!retriedAfterDurationKnown && value.duration > Duration.zero) {
+          retriedAfterDurationKnown = true;
+          await _seek(position);
+          if (!_canCommitAsyncState(generation)) {
+            return false;
+          }
+          final int retryDriftMs = (value.position - position).inMilliseconds
+              .abs();
+          if (retryDriftMs <= 1000) {
+            return true;
+          }
+        }
       } catch (error) {
         lastError = error;
-        await Future<void>.delayed(const Duration(milliseconds: 120));
-        if (!_canCommitAsyncState(generation)) {
-          return false;
-        }
       }
     }
     if (lastError != null) {

@@ -9,18 +9,12 @@ class PlayerStateOverlay extends StatelessWidget {
     super.key,
     required this.controller,
     required this.state,
-    required this.onRetry,
     required this.onResume,
-    required this.onReplay,
-    this.onNext,
   });
 
   final UnifiedVideoController controller;
   final UnifiedVideoState state;
-  final VoidCallback onRetry;
   final VoidCallback onResume;
-  final VoidCallback onReplay;
-  final VoidCallback? onNext;
 
   @override
   Widget build(BuildContext context) {
@@ -42,9 +36,9 @@ class PlayerStateOverlay extends StatelessWidget {
       case UnifiedVideoLifecycle.paused:
         return _PausedState(onResume: onResume);
       case UnifiedVideoLifecycle.failed:
-        return _FailedState(state: state, onRetry: onRetry);
+        return _FailedState(state: state);
       case UnifiedVideoLifecycle.ended:
-        return _EndedState(onReplay: onReplay, onNext: onNext);
+        return const _EndedState();
       case UnifiedVideoLifecycle.idle:
       case UnifiedVideoLifecycle.ready:
       case UnifiedVideoLifecycle.playing:
@@ -164,10 +158,9 @@ class _PausedState extends StatelessWidget {
 }
 
 class _FailedState extends StatelessWidget {
-  const _FailedState({required this.state, required this.onRetry});
+  const _FailedState({required this.state});
 
   final UnifiedVideoState state;
-  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -209,18 +202,6 @@ class _FailedState extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
-              FilledButton.icon(
-                key: const ValueKey<String>('state-retry'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(88, 44),
-                  backgroundColor: const Color(0xFF0071E3),
-                  foregroundColor: Colors.white,
-                ),
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('重试'),
-              ),
             ],
           ),
         ),
@@ -230,10 +211,7 @@ class _FailedState extends StatelessWidget {
 }
 
 class _EndedState extends StatelessWidget {
-  const _EndedState({required this.onReplay, required this.onNext});
-
-  final VoidCallback onReplay;
-  final VoidCallback? onNext;
+  const _EndedState();
 
   @override
   Widget build(BuildContext context) {
@@ -253,39 +231,6 @@ class _EndedState extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                FilledButton.icon(
-                  key: const ValueKey<String>('state-replay'),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(96, 44),
-                    backgroundColor: const Color(0xFF0071E3),
-                    foregroundColor: Colors.white,
-                  ),
-                  onPressed: onReplay,
-                  icon: const Icon(Icons.replay_rounded, size: 18),
-                  label: const Text('重播'),
-                ),
-                if (onNext != null) ...<Widget>[
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    key: const ValueKey<String>('state-next'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(96, 44),
-                      foregroundColor: Colors.white,
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.28),
-                      ),
-                    ),
-                    onPressed: onNext,
-                    icon: const Icon(Icons.skip_next_rounded, size: 18),
-                    label: const Text('下一集'),
-                  ),
-                ],
-              ],
             ),
           ],
         ),

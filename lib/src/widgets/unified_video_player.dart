@@ -148,7 +148,6 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       activeEpisodeId: _activeEpisodeId,
       openingEpisodeId: _openingEpisodeId,
       onEpisodeSelected: _openEpisode,
-      onRetry: _retryCurrentSource,
       onPrevious: _previousEpisodeAction(),
       onNext: _nextEpisodeAction(),
       onSwitchContent: widget.onSwitchContent,
@@ -457,23 +456,6 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       );
     }
   }
-
-  Future<void> _retryCurrentSource() async {
-    final VideoSource? source = widget.controller.value.source;
-    if (source == null) {
-      return;
-    }
-    final VideoEpisode? episode = _episodeMatchingSource(source);
-    try {
-      if (episode != null && _sameSource(source, _quarantinedInternalSource)) {
-        await _openEpisode(episode);
-      } else {
-        await widget.controller.open(source);
-      }
-    } catch (_) {
-      // The controller exposes retry failures through UnifiedVideoState.
-    }
-  }
 }
 
 class _UnifiedVideoPlayerView extends StatefulWidget {
@@ -484,7 +466,6 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
     required this.activeEpisodeId,
     required this.openingEpisodeId,
     required this.onEpisodeSelected,
-    required this.onRetry,
     required this.onPrevious,
     required this.onNext,
     required this.onSwitchContent,
@@ -497,7 +478,6 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
   final String? activeEpisodeId;
   final String? openingEpisodeId;
   final Future<bool> Function(VideoEpisode episode) onEpisodeSelected;
-  final Future<void> Function() onRetry;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
   final VoidCallback? onSwitchContent;
@@ -968,20 +948,12 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
                             child: PlayerStateOverlay(
                               controller: widget.controller,
                               state: state,
-                              onRetry: widget.onRetry,
                               onResume: () {
                                 _showControls();
                                 _ignorePlaybackError(
                                   () => _playOrReplay(widget.controller, state),
                                 );
                               },
-                              onReplay: () {
-                                _showControls();
-                                _ignorePlaybackError(
-                                  () => _playOrReplay(widget.controller, state),
-                                );
-                              },
-                              onNext: widget.onNext,
                             ),
                           ),
                           if (state.lastKernelSwitchError != null &&
@@ -1348,9 +1320,13 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
             ),
           );
         }
+        final double mobilePanelWidth = math.min(
+          352,
+          math.max(0, constraints.maxWidth - 32),
+        );
         return Positioned(
-          left: 0,
-          right: 0,
+          left: (constraints.maxWidth - mobilePanelWidth) / 2,
+          width: mobilePanelWidth,
           bottom: 0,
           child: ConstrainedBox(
             constraints: BoxConstraints(

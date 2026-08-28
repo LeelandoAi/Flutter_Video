@@ -1806,6 +1806,26 @@ void main() {
     );
   });
 
+  testWidgets('手机竖屏嵌入显示设置入口且仍隐藏选集', (WidgetTester tester) async {
+    await pumpPlayer(
+      tester,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+      viewSize: const Size(393, 852),
+    );
+
+    expect(find.byKey(const ValueKey<String>('episode-picker')), findsNothing);
+    expect(find.byKey(const ValueKey<String>('more-menu')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('settings-panel')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('桌面宽布局显示选集并保持 44 像素热区', (WidgetTester tester) async {
     // Catches wide mode hiding episodes or shrinking the primary hit target.
     await pumpPlayer(
@@ -1990,8 +2010,8 @@ void main() {
     );
   });
 
-  testWidgets('更多在 Expanded 贴底而 Wide 锚定右下', (WidgetTester tester) async {
-    // Catches the legacy route using one bottom-sheet layout on every platform.
+  testWidgets('手机更多设置收窄居中贴底而 Wide 锚定右下', (WidgetTester tester) async {
+    // Catches mobile settings expanding back to a full-width bottom sheet.
     await pumpPlayer(
       tester,
       viewSize: const Size(852, 393),
@@ -2005,8 +2025,8 @@ void main() {
     Rect panel = tester.getRect(
       find.byKey(const ValueKey<String>('settings-panel')),
     );
-    expect(panel.left, frame.left);
-    expect(panel.right, frame.right);
+    expect(panel.width, closeTo(math.min(352, frame.width - 32), 0.01));
+    expect(panel.center.dx, closeTo(frame.center.dx, 0.01));
     expect(panel.bottom, frame.bottom);
 
     await tester.tap(
@@ -2378,8 +2398,8 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('结束状态提供重播和下一集且持续保留主控', (WidgetTester tester) async {
-    // Catches ended actions disappearing or the controls auto-hiding.
+  testWidgets('结束状态不显示重播和下一集且持续保留主控', (WidgetTester tester) async {
+    // Catches redundant ended actions returning or the controls auto-hiding.
     final UnifiedVideoController controller = await pumpPlayer(
       tester,
       episodes: testEpisodes(),
@@ -2396,29 +2416,10 @@ void main() {
       find.byKey(const ValueKey<String>('ended-state-indicator')),
       findsOneWidget,
     );
-    final Finder replay = find.byKey(const ValueKey<String>('state-replay'));
-    final Finder next = find.byKey(const ValueKey<String>('state-next'));
-    expect(replay, findsOneWidget);
-    expect(next, findsOneWidget);
-    expect(tester.getSize(replay).height, greaterThanOrEqualTo(44));
-    expect(tester.getSize(next).height, greaterThanOrEqualTo(44));
+    expect(find.byKey(const ValueKey<String>('state-replay')), findsNothing);
+    expect(find.byKey(const ValueKey<String>('state-next')), findsNothing);
     await tester.pump(const Duration(milliseconds: 320));
     expect(_controlsOverlay(tester).opacity, 1);
-
-    await tester.tap(replay);
-    await tester.pumpAndSettle();
-
-    expect(controller.value.lifecycle, UnifiedVideoLifecycle.playing);
-    expect(controller.value.position, Duration.zero);
-
-    controller.value = controller.value.copyWith(
-      lifecycle: UnifiedVideoLifecycle.ended,
-      position: controller.value.duration,
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey<String>('state-next')));
-    await tester.pumpAndSettle();
-    expect(controller.value.source?.uri.path, endsWith('e2.mp4'));
   });
 
   testWidgets('UI 可以修改缩放、倍速和全屏状态', (WidgetTester tester) async {
@@ -2945,7 +2946,7 @@ void main() {
     expect(find.byKey(const ValueKey<String>('settings-panel')), findsNothing);
   });
 
-  testWidgets('失败状态显示错误和重试按钮', (WidgetTester tester) async {
+  testWidgets('失败状态显示错误但不显示重试按钮', (WidgetTester tester) async {
     final _FailOnceOpenTracker tracker = _FailOnceOpenTracker();
     const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
       id: 'retry',
@@ -2985,28 +2986,17 @@ void main() {
       find.byKey(const ValueKey<String>('video-error-message')),
       findsOneWidget,
     );
-    final Finder retry = find.byKey(const ValueKey<String>('state-retry'));
-    expect(retry, findsOneWidget);
-    expect(find.text('重试'), findsOneWidget);
-    expect(tester.getSize(retry).height, greaterThanOrEqualTo(44));
+    expect(find.byKey(const ValueKey<String>('state-retry')), findsNothing);
+    expect(find.text('重试'), findsNothing);
     expect(find.byKey(const ValueKey<String>('play-pause')), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 320));
     expect(_controlsOverlay(tester).opacity, 1);
-
-    await tester.tap(retry);
-    await tester.pumpAndSettle();
-    expect(tracker.attempts, 2);
-    expect(controller.value.lifecycle, UnifiedVideoLifecycle.ready);
-    expect(
-      find.byKey(const ValueKey<String>('video-error-message')),
-      findsNothing,
-    );
   });
 
   testWidgets('切换到失败内核后保留原播放画面和生命周期并提示错误', (WidgetTester tester) async {
     const VideoKernelDescriptor failingDescriptor = VideoKernelDescriptor(
-      id: 'erika',
-      displayName: 'Erika / Rust Renderer',
+      id: 'failing-kernel',
+      displayName: '失败测试内核',
       supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.macos},
       supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
     );
@@ -3041,7 +3031,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('more-menu')));
     await tester.pumpAndSettle();
     final Finder failingKernel = find.byKey(
-      const ValueKey<String>('kernel-option-erika'),
+      const ValueKey<String>('kernel-option-failing-kernel'),
     );
     await tester.ensureVisible(failingKernel);
     await tester.pumpAndSettle();
@@ -3368,67 +3358,6 @@ void main() {
     expect(reported, hasLength(1));
     expect(reported.single.exception, isA<StateError>());
     expect(find.byKey(const ValueKey<String>('episode-panel')), findsNothing);
-  });
-
-  testWidgets('内部失败选集通过状态重试成功后只通知一次', (WidgetTester tester) async {
-    // Catches the generic retry path bypassing the episode commit callback.
-    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
-      id: 'episode-retry-callback',
-      displayName: '选集重试回调测试内核',
-      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.windows},
-      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
-    );
-    final _FailOnceEpisodeTracker tracker = _FailOnceEpisodeTracker();
-    final UnifiedVideoController controller = UnifiedVideoController(
-      registry: VideoKernelRegistry(
-        kernels: <RegisteredVideoKernel>[
-          RegisteredVideoKernel(
-            descriptor: descriptor,
-            create: () => _FailOnceEpisodeAdapter(descriptor, tracker),
-          ),
-        ],
-      ),
-      platform: UnifiedVideoPlatform.windows,
-      stateRefreshInterval: null,
-    );
-    final List<VideoEpisode> episodes = testEpisodes();
-    final List<String> changed = <String>[];
-    await controller.open(episodes.first.source);
-    addTearDown(controller.dispose);
-    tester.view.physicalSize = const Size(1280, 720);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: UnifiedVideoPlayer(
-            controller: controller,
-            episodes: episodes,
-            initialEpisodeId: 'e1',
-            onEpisodeChanged: (VideoEpisode episode) {
-              changed.add(episode.id);
-            },
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.byKey(const ValueKey<String>('episode-picker')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('episode-option-e2')));
-    await tester.pumpAndSettle();
-    expect(controller.value.lifecycle, UnifiedVideoLifecycle.failed);
-    expect(changed, isEmpty);
-
-    await tester.tapAt(const Offset(1, 1));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey<String>('state-retry')));
-    await tester.pumpAndSettle();
-
-    expect(controller.value.lifecycle, UnifiedVideoLifecycle.ready);
-    expect(controller.value.source?.uri, episodes[1].source.uri);
-    expect(changed, <String>['e2']);
   });
 
   testWidgets('标题副标题优先活动选集并随换源和保留 ID 的列表更新', (WidgetTester tester) async {

@@ -341,7 +341,7 @@ void main() {
     expect(player.value.lastKernelSwitchError, isNotNull);
   });
 
-  test('切换内核时会重试恢复播放进度', () async {
+  test('切换内核时会等待恢复播放进度', () async {
     const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
       id: 'first',
       displayName: '第一测试内核',
@@ -378,7 +378,146 @@ void main() {
     expect(player.value.position, const Duration(minutes: 3));
   });
 
-  test('切换内核六次 seek 后进度仍未收敛会回滚', () async {
+  test('切换到加载较慢的内核时只 seek 一次并等待快照收敛', () async {
+    const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
+      id: 'first',
+      displayName: '第一测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    const VideoKernelDescriptor slowLoadingDescriptor = VideoKernelDescriptor(
+      id: 'slow-loading',
+      displayName: '慢加载测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    late _DelayedSeekVideoKernelAdapter slowLoadingAdapter;
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(
+          descriptor: firstDescriptor,
+          create: () => FakeVideoKernelAdapter(descriptor: firstDescriptor),
+        ),
+        RegisteredVideoKernel(
+          descriptor: slowLoadingDescriptor,
+          create: () => slowLoadingAdapter = _DelayedSeekVideoKernelAdapter(
+            slowLoadingDescriptor,
+            convergenceSnapshot: 8,
+          ),
+        ),
+      ],
+      preference: KernelPreference.exact('first'),
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    await player.seek(const Duration(minutes: 3));
+
+    await player.switchKernel('slow-loading');
+
+    expect(slowLoadingAdapter.openPosition, Duration.zero);
+    expect(slowLoadingAdapter.seekAttempts, 1);
+    expect(slowLoadingAdapter.snapshotAttempts, 8);
+    expect(player.value.activeKernelId, 'slow-loading');
+    expect(player.value.position, const Duration(minutes: 3));
+  });
+
+  test('目标内核 ready 前忽略 seek 时会在 ready 后重试并完成切换', () async {
+    const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
+      id: 'first-before-ready',
+      displayName: '第一测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    const VideoKernelDescriptor targetDescriptor = VideoKernelDescriptor(
+      id: 'seek-after-ready',
+      displayName: '就绪后才能 seek 的测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    late _SeekAfterReadyVideoKernelAdapter targetAdapter;
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(
+          descriptor: firstDescriptor,
+          create: () => FakeVideoKernelAdapter(descriptor: firstDescriptor),
+        ),
+        RegisteredVideoKernel(
+          descriptor: targetDescriptor,
+          create: () => targetAdapter = _SeekAfterReadyVideoKernelAdapter(
+            targetDescriptor,
+          ),
+        ),
+      ],
+      preference: KernelPreference.exact(firstDescriptor.id),
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    await player.seek(const Duration(minutes: 3));
+    await player.play();
+
+    await player.switchKernel(targetDescriptor.id);
+
+    expect(targetAdapter.seekAttempts, 2);
+    expect(player.value.activeKernelId, targetDescriptor.id);
+    expect(player.value.position, const Duration(minutes: 3));
+    expect(player.value.lifecycle, UnifiedVideoLifecycle.playing);
+    expect(player.value.lastKernelSwitchError, isNull);
+  });
+
+  test('播放结束后切换内核从零秒恢复而不是 seek 到 EOF', () async {
+    const VideoKernelDescriptor firstDescriptor = VideoKernelDescriptor(
+      id: 'first-ended',
+      displayName: '结束态测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    const VideoKernelDescriptor secondDescriptor = VideoKernelDescriptor(
+      id: 'second-ended',
+      displayName: '目标测试内核',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    late _DelayedSeekVideoKernelAdapter targetAdapter;
+    final UnifiedVideoController player = controller(
+      kernels: <RegisteredVideoKernel>[
+        RegisteredVideoKernel(
+          descriptor: firstDescriptor,
+          create: () => FakeVideoKernelAdapter(descriptor: firstDescriptor),
+        ),
+        RegisteredVideoKernel(
+          descriptor: secondDescriptor,
+          create: () => targetAdapter = _DelayedSeekVideoKernelAdapter(
+            secondDescriptor,
+            convergenceSnapshot: 1,
+          ),
+        ),
+      ],
+      preference: KernelPreference.exact('first-ended'),
+      stateRefreshInterval: null,
+    );
+    addTearDown(player.dispose);
+
+    await player.open(source());
+    player.value = player.value.copyWith(
+      lifecycle: UnifiedVideoLifecycle.ended,
+      duration: const Duration(seconds: 5),
+      position: const Duration(seconds: 5),
+    );
+
+    await player.switchKernel('second-ended');
+
+    expect(targetAdapter.seekAttempts, 0);
+    expect(targetAdapter.seekPosition, isNull);
+    expect(player.value.activeKernelId, 'second-ended');
+    expect(player.value.position, Duration.zero);
+    expect(player.value.lifecycle, UnifiedVideoLifecycle.paused);
+  });
+
+  test('切换内核二十次快照后进度仍未收敛会回滚', () async {
     await _expectInaccurateSeekRollsBack(
       controller: controller,
       source: source,
@@ -1206,17 +1345,28 @@ RegisteredVideoKernel _createPlatformTestKernel() {
 }
 
 class _DelayedSeekVideoKernelAdapter extends FakeVideoKernelAdapter {
-  _DelayedSeekVideoKernelAdapter(VideoKernelDescriptor descriptor)
-    : super(descriptor: descriptor);
+  _DelayedSeekVideoKernelAdapter(
+    VideoKernelDescriptor descriptor, {
+    this.convergenceSnapshot = 3,
+  }) : super(descriptor: descriptor);
+
+  final int convergenceSnapshot;
 
   Duration _position = Duration.zero;
-  int _seekAttempts = 0;
+  Duration? _targetPosition;
+  int _snapshotsSinceSeek = 0;
+  int seekAttempts = 0;
+  int snapshotAttempts = 0;
+  Duration? openPosition;
+
+  Duration? get seekPosition => _targetPosition;
 
   @override
   Future<UnifiedVideoState> open(
     VideoSource source,
     UnifiedVideoState state,
   ) async {
+    openPosition = state.position;
     return (await super.open(source, state)).copyWith(position: _position);
   }
 
@@ -1225,15 +1375,19 @@ class _DelayedSeekVideoKernelAdapter extends FakeVideoKernelAdapter {
     Duration position,
     UnifiedVideoState state,
   ) async {
-    _seekAttempts++;
-    if (_seekAttempts >= 3) {
-      _position = position;
-    }
+    seekAttempts += 1;
+    _targetPosition = position;
+    _snapshotsSinceSeek = 0;
     return state.copyWith(position: _position);
   }
 
   @override
   Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
+    snapshotAttempts += 1;
+    _snapshotsSinceSeek += 1;
+    if (_snapshotsSinceSeek >= convergenceSnapshot) {
+      _position = _targetPosition ?? _position;
+    }
     return state.copyWith(position: _position);
   }
 }
@@ -1247,6 +1401,7 @@ class _InaccurateSeekVideoKernelAdapter extends FakeVideoKernelAdapter {
   final Duration offset;
   Duration _position = Duration.zero;
   int seekAttempts = 0;
+  int snapshotAttempts = 0;
 
   @override
   Future<UnifiedVideoState> open(
@@ -1268,7 +1423,59 @@ class _InaccurateSeekVideoKernelAdapter extends FakeVideoKernelAdapter {
 
   @override
   Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
+    snapshotAttempts += 1;
     return state.copyWith(position: _position);
+  }
+}
+
+class _SeekAfterReadyVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _SeekAfterReadyVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  static const Duration _duration = Duration(minutes: 42);
+
+  bool _ready = false;
+  Duration _position = Duration.zero;
+  int _snapshotAttempts = 0;
+  int seekAttempts = 0;
+
+  @override
+  Future<UnifiedVideoState> open(
+    VideoSource source,
+    UnifiedVideoState state,
+  ) async {
+    return (await super.open(source, state)).copyWith(
+      lifecycle: UnifiedVideoLifecycle.buffering,
+      duration: Duration.zero,
+      position: Duration.zero,
+    );
+  }
+
+  @override
+  Future<UnifiedVideoState> seek(
+    Duration position,
+    UnifiedVideoState state,
+  ) async {
+    seekAttempts += 1;
+    if (_ready) {
+      _position = position;
+    }
+    return state.copyWith(position: _position);
+  }
+
+  @override
+  Future<UnifiedVideoState> snapshot(UnifiedVideoState state) async {
+    _snapshotAttempts += 1;
+    if (_snapshotAttempts >= 3) {
+      _ready = true;
+    }
+    return state.copyWith(
+      lifecycle: _ready
+          ? UnifiedVideoLifecycle.ready
+          : UnifiedVideoLifecycle.buffering,
+      duration: _ready ? _duration : Duration.zero,
+      position: _position,
+    );
   }
 }
 
@@ -1351,7 +1558,8 @@ Future<void> _expectInaccurateSeekRollsBack({
     throwsA(isA<KernelSwitchException>()),
   );
 
-  expect(inaccurateAdapter.seekAttempts, 6);
+  expect(inaccurateAdapter.seekAttempts, 1);
+  expect(inaccurateAdapter.snapshotAttempts, 20);
   expect(player.value.activeKernelId, 'stable');
   expect(player.value.position, const Duration(minutes: 3));
 }
