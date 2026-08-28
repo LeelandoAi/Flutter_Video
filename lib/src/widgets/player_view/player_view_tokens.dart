@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../models.dart';
 
-enum PlayerViewMode { compact, expanded, wide }
+enum PlayerViewMode { compact, portraitFullscreen, expanded, wide }
 
 abstract final class PlayerViewTokens {
   static const double desktopEmbeddedRadius = 18;
@@ -45,7 +45,9 @@ class PlayerViewMetrics {
         platform == UnifiedVideoPlatform.macos;
     final PlayerViewMode mode;
     if (fullscreen) {
-      mode = PlayerViewMode.expanded;
+      mode = !desktop && orientation == Orientation.portrait
+          ? PlayerViewMode.portraitFullscreen
+          : PlayerViewMode.expanded;
     } else if (desktop) {
       mode = width >= 640 ? PlayerViewMode.wide : PlayerViewMode.compact;
     } else if (orientation == Orientation.portrait || width < 480) {
@@ -65,6 +67,17 @@ class PlayerViewMetrics {
           iconSize: 17,
           primaryIconSize: 23,
           showMore: !desktop,
+        );
+      case PlayerViewMode.portraitFullscreen:
+        return PlayerViewMetrics(
+          mode: mode,
+          leftPadding: viewPadding.left + 12,
+          rightPadding: viewPadding.right + 12,
+          bottomPadding: viewPadding.bottom,
+          progressHeight: 3,
+          iconSize: 19,
+          primaryIconSize: 27,
+          showMore: true,
         );
       case PlayerViewMode.expanded:
         return PlayerViewMetrics(

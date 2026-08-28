@@ -12,9 +12,9 @@
 
 ```yaml
 dependencies:
-  leelando_video: ^0.3.0
-  leelando_video_media_kit: ^0.3.0
-  leelando_video_video_player: ^0.3.0
+  leelando_video: ^1.0.0
+  leelando_video_media_kit: ^1.0.0
+  leelando_video_video_player: ^1.0.0
 ```
 
 ```dart
@@ -36,7 +36,7 @@ final registry = VideoKernelRegistry(
 
 ```yaml
 dependencies:
-  leelando_video_all: ^0.3.0
+  leelando_video_all: ^1.0.0
 ```
 
 ```dart
@@ -53,7 +53,7 @@ final registry = VideoKernelRegistry(kernels: createAllVideoKernels());
 
 ```yaml
 dependencies:
-  leelando_video: ^0.3.0
+  leelando_video: ^1.0.0
 ```
 
 ```dart
@@ -268,6 +268,20 @@ UnifiedVideoPlayer(
 ```
 
 默认控件包含进度、当前时间、总时长、上一集、下一集、播放/暂停、全屏、切换内容、切换内核、缩放模式和倍速选择。
+
+### 移动端全屏方向
+
+`fullscreenOrientation` 控制 Android 与 iOS 的全屏方向，默认值为 `landscape`，因此现有横屏全屏行为不变。短剧播放器可以使用 `portrait` 固定竖屏，或使用 `auto` 按 `aspectRatio` 自动判断：小于 `1` 时进入竖屏，否则进入横屏。
+
+```dart
+UnifiedVideoPlayer(
+  controller: controller,
+  aspectRatio: 9 / 16,
+  fullscreenOrientation: UnifiedVideoFullscreenOrientation.auto,
+)
+```
+
+移动端进入全屏后会显示方向切换按钮，可以在竖屏全屏和横屏全屏之间切换；切换过程复用同一个播放 Surface，不会重新打开片源。退出全屏后播放器会解除方向锁定并恢复系统 UI，让业务页面继续遵循应用原有的屏幕方向策略。桌面端全屏不受该参数影响。
 
 ### 内置选集
 

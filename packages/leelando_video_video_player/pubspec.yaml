@@ -1,6 +1,6 @@
 name: leelando_video_video_player
 description: 基于 Flutter 官方 video_player 的 leelando_video 可插拔播放内核，支持移动端和 macOS 的常用视频播放场景。
-version: 0.3.0
+version: 1.0.0
 resolution: workspace
 repository: https://github.com/LeelandoAi/Flutter_Video/tree/main/packages/leelando_video_video_player
 issue_tracker: https://github.com/LeelandoAi/Flutter_Video/issues
@@ -12,7 +12,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  leelando_video: ^0.3.0
+  leelando_video: ^1.0.0
   video_player: ^2.14.0
 
 dev_dependencies:

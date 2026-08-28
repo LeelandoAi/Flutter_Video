@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:leelando_video/leelando_video.dart';
 import 'package:leelando_video/src/fullscreen_platform.dart';
@@ -60,6 +61,42 @@ void main() {
 
     await player.exitFullscreen();
     expect(player.value.fullscreen, isFalse);
+  });
+
+  test('移动端全屏方向映射到系统方向并在退出时解除锁定', () async {
+    final List<List<Object?>> orientationCalls = <List<Object?>>[];
+    final TestDefaultBinaryMessenger messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (
+      MethodCall call,
+    ) async {
+      if (call.method == 'SystemChrome.setPreferredOrientations') {
+        orientationCalls.add(List<Object?>.from(call.arguments as List));
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    final UnifiedVideoController player = controller();
+    addTearDown(player.dispose);
+
+    await player.enterFullscreen(
+      orientation: UnifiedVideoFullscreenOrientation.portrait,
+    );
+    await player.exitFullscreen();
+    await player.enterFullscreen(
+      orientation: UnifiedVideoFullscreenOrientation.landscape,
+    );
+
+    expect(orientationCalls, <List<Object?>>[
+      <Object?>['DeviceOrientation.portraitUp'],
+      <Object?>[],
+      <Object?>[
+        'DeviceOrientation.landscapeLeft',
+        'DeviceOrientation.landscapeRight',
+      ],
+    ]);
   });
 
   test('控制器打开后持续刷新后端位置快照', () async {

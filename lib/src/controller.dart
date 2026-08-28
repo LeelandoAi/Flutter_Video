@@ -452,17 +452,27 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     });
   }
 
-  Future<void> enterFullscreen({bool syncPlatform = true}) {
-    return _enterFullscreen(syncPlatform: syncPlatform);
+  Future<void> enterFullscreen({
+    bool syncPlatform = true,
+    UnifiedVideoFullscreenOrientation orientation =
+        UnifiedVideoFullscreenOrientation.landscape,
+  }) {
+    return _enterFullscreen(
+      syncPlatform: syncPlatform,
+      orientation: orientation,
+    );
   }
 
-  Future<void> _enterFullscreen({required bool syncPlatform}) async {
+  Future<void> _enterFullscreen({
+    required bool syncPlatform,
+    required UnifiedVideoFullscreenOrientation orientation,
+  }) async {
     _ensureActive();
     claimFullscreenOwnership();
     value = value.copyWith(fullscreen: true, clearError: true);
     if (syncPlatform) {
       await _enqueueFullscreenPlatform(
-        () => UnifiedVideoFullscreenPlatform.enter(_platform),
+        () => UnifiedVideoFullscreenPlatform.enter(_platform, orientation),
       );
     }
   }
@@ -481,15 +491,20 @@ class UnifiedVideoController extends ValueNotifier<UnifiedVideoState> {
     }
   }
 
-  Future<void> syncFullscreenPlatform() {
-    return _syncFullscreenPlatform();
+  Future<void> syncFullscreenPlatform({
+    UnifiedVideoFullscreenOrientation orientation =
+        UnifiedVideoFullscreenOrientation.landscape,
+  }) {
+    return _syncFullscreenPlatform(orientation: orientation);
   }
 
-  Future<void> _syncFullscreenPlatform() async {
+  Future<void> _syncFullscreenPlatform({
+    required UnifiedVideoFullscreenOrientation orientation,
+  }) async {
     _ensureActive();
     if (value.fullscreen) {
       await _enqueueFullscreenPlatform(
-        () => UnifiedVideoFullscreenPlatform.enter(_platform),
+        () => UnifiedVideoFullscreenPlatform.enter(_platform, orientation),
       );
     } else {
       await _enqueueFullscreenPlatform(

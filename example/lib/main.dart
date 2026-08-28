@@ -9,6 +9,23 @@ VideoKernelRegistry createDemoKernelRegistry() {
   return VideoKernelRegistry(kernels: createAllVideoKernels());
 }
 
+final PlaybackScenario shortDramaPlaybackScenario = PlaybackScenario(
+  id: 'short-drama-portrait',
+  kind: PlaybackScenarioKind.mp4Vod,
+  title: '竖屏短剧',
+  description: '默认用 9:16 画面验证竖屏全屏、横竖屏切换和播放连续性。',
+  source: VideoSource.network(
+    'http://qiniu.jxkfxz.com/wz_mp41213chunfengbushig1.mp4'
+    '?sign=a212327e975c39bd42787ece2ca1254c&t=6a915f5d',
+    metadata: const VideoMetadata(title: '春风不识归来路', episodeTitle: '短剧第 1 集'),
+  ),
+  preferredKernelIds: defaultNetworkKernelOrder,
+  expectedResult: '应以 9:16 嵌入播放，全屏默认进入竖屏，并可在全屏内切换横屏。',
+  notes: const <String>['该地址为 HTTP，Example 工程仅对 qiniu.jxkfxz.com 放行明文媒体请求。'],
+  aspectRatio: 9 / 16,
+  fullscreenOrientation: UnifiedVideoFullscreenOrientation.auto,
+);
+
 void main() {
   runApp(const DemoApp());
 }
@@ -62,12 +79,13 @@ class _DemoHomePageState extends State<DemoHomePage>
   bool _glAnimation = true;
   double _previewSeconds = 8;
 
-  List<PlaybackScenario> get _sources => defaultPlaybackScenarios
-      .where(
-        (PlaybackScenario scenario) =>
-            scenario.kind != PlaybackScenarioKind.invalidUrl,
-      )
-      .toList(growable: false);
+  List<PlaybackScenario> get _sources => <PlaybackScenario>[
+    shortDramaPlaybackScenario,
+    ...defaultPlaybackScenarios.where(
+      (PlaybackScenario scenario) =>
+          scenario.kind != PlaybackScenarioKind.invalidUrl,
+    ),
+  ];
 
   List<VideoEpisode> get _episodes => _sources.indexed
       .map((entry) {
@@ -115,41 +133,53 @@ class _DemoHomePageState extends State<DemoHomePage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('统一影视播放器 GSY 场景验证')),
-      body: Stack(
-        children: <Widget>[
-          ListView(
-            padding: const EdgeInsets.all(16),
+      body: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final double playerMaxHeight = math.max(
+            0,
+            constraints.maxHeight - 32,
+          );
+          return Stack(
             children: <Widget>[
-              _buildPlayerStage(),
-              const SizedBox(height: 16),
-              _buildStateCard(),
-              const SizedBox(height: 16),
-              _buildSceneSelector(),
-              const SizedBox(height: 16),
-              _buildSceneControls(),
-              const SizedBox(height: 16),
-              _buildSourceList(),
+              ListView(
+                padding: const EdgeInsets.all(16),
+                children: <Widget>[
+                  _buildPlayerStage(maxHeight: playerMaxHeight),
+                  const SizedBox(height: 16),
+                  _buildStateCard(),
+                  const SizedBox(height: 16),
+                  _buildSceneSelector(),
+                  const SizedBox(height: 16),
+                  _buildSceneControls(),
+                  const SizedBox(height: 16),
+                  _buildSourceList(),
+                ],
+              ),
+              if (_smallWindow) _buildSmallWindow(context),
             ],
-          ),
-          if (_smallWindow) _buildSmallWindow(context),
-        ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildPlayerStage() {
+  Widget _buildPlayerStage({required double maxHeight}) {
     if (_smallWindow) {
-      return const AspectRatio(
-        aspectRatio: 16 / 9,
-        child: ColoredBox(
-          color: Colors.black,
-          child: Center(
-            child: Text('小窗播放中', style: TextStyle(color: Colors.white70)),
+      return _fitPlayerStage(
+        maxHeight: maxHeight,
+        child: const AspectRatio(
+          aspectRatio: 16 / 9,
+          child: ColoredBox(
+            color: Colors.black,
+            child: Center(
+              child: Text('小窗播放中', style: TextStyle(color: Colors.white70)),
+            ),
           ),
         ),
       );
     }
 
+    final PlaybackScenario source = _sources[_sourceIndex];
     Widget player = UnifiedVideoPlayer(
       controller: _controller,
       episodes: _episodes,
@@ -167,6 +197,8 @@ class _DemoHomePageState extends State<DemoHomePage>
       onPrevious: _sourceIndex == 0 ? null : _previousSource,
       onNext: _sourceIndex == _sources.length - 1 ? null : _nextSource,
       onSwitchContent: _switchContent,
+      aspectRatio: source.aspectRatio,
+      fullscreenOrientation: source.fullscreenOrientation,
     );
 
     if (_scene == GSYDemoScene.single || _scene == GSYDemoScene.listDetail) {
@@ -199,9 +231,22 @@ class _DemoHomePageState extends State<DemoHomePage>
       player = _BlurBackgroundPlayer(child: player);
     }
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 320),
-      child: KeyedSubtree(key: ValueKey<GSYDemoScene>(_scene), child: player),
+    return _fitPlayerStage(
+      maxHeight: maxHeight,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 320),
+        child: KeyedSubtree(key: ValueKey<GSYDemoScene>(_scene), child: player),
+      ),
+    );
+  }
+
+  Widget _fitPlayerStage({required double maxHeight, required Widget child}) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: child,
+      ),
     );
   }
 

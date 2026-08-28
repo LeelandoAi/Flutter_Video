@@ -47,7 +47,10 @@ class UnifiedVideoFullscreenPlatform {
     });
   }
 
-  static Future<void> enter(UnifiedVideoPlatform platform) async {
+  static Future<void> enter(
+    UnifiedVideoPlatform platform,
+    UnifiedVideoFullscreenOrientation orientation,
+  ) async {
     switch (platform) {
       case UnifiedVideoPlatform.android:
       case UnifiedVideoPlatform.ios:
@@ -56,10 +59,9 @@ class UnifiedVideoFullscreenPlatform {
               SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
         );
         await _ignoreUnavailablePlatform(
-          () => SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
-            DeviceOrientation.landscapeLeft,
-            DeviceOrientation.landscapeRight,
-          ]),
+          () => SystemChrome.setPreferredOrientations(
+            _deviceOrientations(orientation),
+          ),
         );
       case UnifiedVideoPlatform.windows:
       case UnifiedVideoPlatform.macos:
@@ -69,6 +71,21 @@ class UnifiedVideoFullscreenPlatform {
       case UnifiedVideoPlatform.unknown:
         break;
     }
+  }
+
+  static List<DeviceOrientation> _deviceOrientations(
+    UnifiedVideoFullscreenOrientation orientation,
+  ) {
+    return switch (orientation) {
+      UnifiedVideoFullscreenOrientation.landscape => const <DeviceOrientation>[
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ],
+      UnifiedVideoFullscreenOrientation.portrait => const <DeviceOrientation>[
+        DeviceOrientation.portraitUp,
+      ],
+      UnifiedVideoFullscreenOrientation.auto => const <DeviceOrientation>[],
+    };
   }
 
   static Future<void> exit(UnifiedVideoPlatform platform) async {

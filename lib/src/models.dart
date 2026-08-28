@@ -17,6 +17,8 @@ enum UnifiedVideoLifecycle {
 
 enum UnifiedVideoPlatform { android, ios, windows, macos, web, linux, unknown }
 
+enum UnifiedVideoFullscreenOrientation { landscape, portrait, auto }
+
 enum UnifiedVideoFit { original, ratio16x9, ratio4x3, contain, fill, cover }
 
 enum UnifiedVideoErrorCode {

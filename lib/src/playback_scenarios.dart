@@ -12,6 +12,8 @@ class PlaybackScenario {
     required this.preferredKernelIds,
     required this.expectedResult,
     this.notes = const <String>[],
+    this.aspectRatio = 16 / 9,
+    this.fullscreenOrientation = UnifiedVideoFullscreenOrientation.landscape,
   });
 
   final String id;
@@ -22,6 +24,8 @@ class PlaybackScenario {
   final List<String> preferredKernelIds;
   final String expectedResult;
   final List<String> notes;
+  final double aspectRatio;
+  final UnifiedVideoFullscreenOrientation fullscreenOrientation;
 }
 
 const String sampleAssetVideoPath = 'assets/videos/demo_tone.mp4';

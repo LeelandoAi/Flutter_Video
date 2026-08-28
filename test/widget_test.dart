@@ -27,6 +27,8 @@ void main() {
     double viewPaddingRight = 0,
     double viewPaddingBottom = 0,
     double aspectRatio = 16 / 9,
+    UnifiedVideoFullscreenOrientation fullscreenOrientation =
+        UnifiedVideoFullscreenOrientation.landscape,
   }) async {
     tester.view.physicalSize = viewSize;
     tester.view.devicePixelRatio = 1;
@@ -64,6 +66,7 @@ void main() {
             initialEpisodeId: initialEpisodeId,
             onEpisodeChanged: onEpisodeChanged,
             aspectRatio: aspectRatio,
+            fullscreenOrientation: fullscreenOrientation,
           ),
         ),
       ),
@@ -1806,6 +1809,149 @@ void main() {
     );
   });
 
+  testWidgets('短剧在横屏窄宽嵌入时控件分行且不溢出', (WidgetTester tester) async {
+    // Catches a 9:16 player becoming about 203 px wide after leaving fullscreen.
+    await pumpPlayer(
+      tester,
+      viewSize: const Size(780, 360),
+      aspectRatio: 9 / 16,
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('compact-playback-row')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('compact-utility-row')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('9:16 嵌入滚动业务页在手机和电视尺寸均完整收进一屏', (WidgetTester tester) async {
+    // Catches an unbounded vertical parent sizing portrait video from the
+    // entire wide-screen width and producing a player several screens tall.
+    final List<({Size viewport, UnifiedVideoPlatform platform})> cases =
+        <({Size viewport, UnifiedVideoPlatform platform})>[
+          (
+            viewport: const Size(393, 852),
+            platform: UnifiedVideoPlatform.android,
+          ),
+          (
+            viewport: const Size(1920, 1080),
+            platform: UnifiedVideoPlatform.windows,
+          ),
+        ];
+    final List<UnifiedVideoController> controllers = <UnifiedVideoController>[];
+    addTearDown(() {
+      for (final UnifiedVideoController controller in controllers) {
+        controller.dispose();
+      }
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    for (final fixture in cases) {
+      tester.view.physicalSize = fixture.viewport;
+      tester.view.devicePixelRatio = 1;
+      final UnifiedVideoController controller = UnifiedVideoController(
+        registry: VideoKernelRegistry(
+          kernels: <RegisteredVideoKernel>[createFakeVideoKernel()],
+        ),
+        platform: fixture.platform,
+        stateRefreshInterval: null,
+      );
+      controllers.add(controller);
+      await controller.open(VideoSource.network(sampleMp4Url));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: UnifiedVideoPlayer(
+                controller: controller,
+                aspectRatio: 9 / 16,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final Size frameSize = tester.getSize(
+        find.byKey(const ValueKey<String>('player-frame')),
+      );
+      expect(
+        frameSize.width,
+        lessThanOrEqualTo(fixture.viewport.width),
+        reason: '${fixture.platform.name} 播放器宽度不能超出屏幕',
+      );
+      expect(
+        frameSize.height,
+        lessThanOrEqualTo(fixture.viewport.height),
+        reason: '${fixture.platform.name} 播放器高度不能超出屏幕',
+      );
+      expect(frameSize.aspectRatio, closeTo(9 / 16, 0.001));
+    }
+  });
+
+  testWidgets('9:16 内核 Surface 按播放器宽高等比适配', (WidgetTester tester) async {
+    // Catches the host forcing every kernel through an intermediate 16:9 box.
+    const VideoKernelDescriptor descriptor = VideoKernelDescriptor(
+      id: 'portrait-surface',
+      displayName: '竖屏 Surface',
+      supportedPlatforms: <UnifiedVideoPlatform>{UnifiedVideoPlatform.android},
+      supportedSourceTypes: <VideoSourceType>{VideoSourceType.network},
+    );
+    final _PortraitSurfaceVideoKernelAdapter adapter =
+        _PortraitSurfaceVideoKernelAdapter(descriptor);
+    final UnifiedVideoController controller = UnifiedVideoController(
+      registry: VideoKernelRegistry(
+        kernels: <RegisteredVideoKernel>[
+          RegisteredVideoKernel(descriptor: descriptor, create: () => adapter),
+        ],
+      ),
+      platform: UnifiedVideoPlatform.android,
+      stateRefreshInterval: null,
+    );
+    await controller.open(VideoSource.network(sampleMp4Url));
+    addTearDown(controller.dispose);
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topCenter,
+            child: UnifiedVideoPlayer(
+              controller: controller,
+              aspectRatio: 9 / 16,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final Size frameSize = tester.getSize(
+      find.byKey(const ValueKey<String>('player-frame')),
+    );
+    final RenderBox surface = tester.renderObject(
+      find.byKey(const ValueKey<String>('portrait-surface-content')),
+    );
+    final Offset surfaceTopLeft = surface.localToGlobal(Offset.zero);
+    final Offset surfaceBottomRight = surface.localToGlobal(
+      surface.size.bottomRight(Offset.zero),
+    );
+    final Size surfaceSize = Size(
+      surfaceBottomRight.dx - surfaceTopLeft.dx,
+      surfaceBottomRight.dy - surfaceTopLeft.dy,
+    );
+    expect(surfaceSize.width, closeTo(frameSize.width, 0.001));
+    expect(surfaceSize.height, closeTo(frameSize.height, 0.001));
+  });
+
   testWidgets('手机竖屏嵌入显示设置入口且仍隐藏选集', (WidgetTester tester) async {
     await pumpPlayer(
       tester,
@@ -2446,6 +2592,111 @@ void main() {
     await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));
     await tester.pumpAndSettle();
     expect(controller.value.fullscreen, isTrue);
+  });
+
+  testWidgets('9:16 短剧 auto 全屏进入竖屏', (WidgetTester tester) async {
+    final List<List<Object?>> orientationCalls = <List<Object?>>[];
+    final TestDefaultBinaryMessenger messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (
+      MethodCall call,
+    ) async {
+      if (call.method == 'SystemChrome.setPreferredOrientations') {
+        orientationCalls.add(List<Object?>.from(call.arguments as List));
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      viewSize: const Size(393, 852),
+      aspectRatio: 9 / 16,
+      fullscreenOrientation: UnifiedVideoFullscreenOrientation.auto,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));
+    await tester.pumpAndSettle();
+
+    expect(controller.value.fullscreen, isTrue);
+    expect(orientationCalls.last, <Object?>['DeviceOrientation.portraitUp']);
+    expect(
+      find.byKey(const ValueKey<String>('fullscreen-orientation-toggle')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('全屏方向按钮切换横屏时保持同一 Surface', (WidgetTester tester) async {
+    final List<List<Object?>> orientationCalls = <List<Object?>>[];
+    final TestDefaultBinaryMessenger messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (
+      MethodCall call,
+    ) async {
+      if (call.method == 'SystemChrome.setPreferredOrientations') {
+        orientationCalls.add(List<Object?>.from(call.arguments as List));
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      viewSize: const Size(393, 852),
+      aspectRatio: 9 / 16,
+      fullscreenOrientation: UnifiedVideoFullscreenOrientation.auto,
+    );
+    final Element embeddedSurface = tester.element(
+      find.byKey(const ValueKey<String>('fake-video-title')),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('fullscreen-orientation-toggle')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.value.fullscreen, isTrue);
+    expect(orientationCalls.last, <Object?>[
+      'DeviceOrientation.landscapeLeft',
+      'DeviceOrientation.landscapeRight',
+    ]);
+    expect(
+      tester.element(find.byKey(const ValueKey<String>('fake-video-title'))),
+      same(embeddedSurface),
+    );
+  });
+
+  testWidgets('竖屏全屏使用双行主控并保留选集入口', (WidgetTester tester) async {
+    final UnifiedVideoController controller = await pumpPlayer(
+      tester,
+      viewSize: const Size(393, 852),
+      aspectRatio: 9 / 16,
+      fullscreenOrientation: UnifiedVideoFullscreenOrientation.portrait,
+      episodes: testEpisodes(),
+      initialEpisodeId: 'e1',
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('fullscreen')));
+    await tester.pumpAndSettle();
+
+    expect(controller.value.fullscreen, isTrue);
+    expect(
+      find.byKey(const ValueKey<String>('portrait-fullscreen-playback-row')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('portrait-fullscreen-utility-row')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('episode-picker')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('全屏切换复用同一个播放器 Surface，不创建第二套播放器 View', (
@@ -3924,6 +4175,26 @@ class _FailingOpenVideoKernelAdapter extends FakeVideoKernelAdapter {
     UnifiedVideoState state,
   ) async {
     throw StateError('模拟打开失败');
+  }
+}
+
+class _PortraitSurfaceVideoKernelAdapter extends FakeVideoKernelAdapter {
+  _PortraitSurfaceVideoKernelAdapter(VideoKernelDescriptor descriptor)
+    : super(descriptor: descriptor);
+
+  @override
+  Widget buildSurface(BuildContext context, UnifiedVideoState state) {
+    return const FittedBox(
+      fit: BoxFit.contain,
+      child: SizedBox(
+        width: 9,
+        height: 16,
+        child: ColoredBox(
+          key: ValueKey<String>('portrait-surface-content'),
+          color: Colors.black,
+        ),
+      ),
+    );
   }
 }
 

@@ -1,6 +1,6 @@
 name: leelando_video_all
 description: 集成全部可选播放内核的 leelando_video 全量便捷包，适合需要一次性启用所有原生播放引擎的应用。
-version: 0.3.0
+version: 1.0.0
 resolution: workspace
 repository: https://github.com/LeelandoAi/Flutter_Video/tree/main/packages/leelando_video_all
 issue_tracker: https://github.com/LeelandoAi/Flutter_Video/issues
@@ -12,10 +12,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  leelando_video: ^0.3.0
-  leelando_video_media_kit: ^0.3.0
-  leelando_video_fvp: ^0.3.0
-  leelando_video_video_player: ^0.3.0
+  leelando_video: ^1.0.0
+  leelando_video_media_kit: ^1.0.0
+  leelando_video_fvp: ^1.0.0
+  leelando_video_video_player: ^1.0.0
 
 dev_dependencies:
   flutter_test:

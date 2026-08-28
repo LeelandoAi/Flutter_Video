@@ -1,6 +1,6 @@
 name: leelando_video_media_kit
 description: 基于 MediaKit 和 libmpv 的 leelando_video 可插拔播放内核，覆盖移动端与桌面端的统一视频播放场景。
-version: 0.3.0
+version: 1.0.0
 resolution: workspace
 repository: https://github.com/LeelandoAi/Flutter_Video/tree/main/packages/leelando_video_media_kit
 issue_tracker: https://github.com/LeelandoAi/Flutter_Video/issues
@@ -12,7 +12,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  leelando_video: ^0.3.0
+  leelando_video: ^1.0.0
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.7
@@ -21,5 +21,5 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  leelando_video_fvp: ^0.3.0
-  leelando_video_video_player: ^0.3.0
+  leelando_video_fvp: ^1.0.0
+  leelando_video_video_player: ^1.0.0

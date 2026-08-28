@@ -10,6 +10,8 @@ class PlayerControls extends StatelessWidget {
     required this.metrics,
     required this.hasEpisodes,
     required this.showFullscreen,
+    required this.fullscreenOrientation,
+    required this.onToggleFullscreenOrientation,
     required this.danmakuEnabled,
     required this.onPrevious,
     required this.onPlayPause,
@@ -28,6 +30,8 @@ class PlayerControls extends StatelessWidget {
   final PlayerViewMetrics metrics;
   final bool hasEpisodes;
   final bool showFullscreen;
+  final UnifiedVideoFullscreenOrientation fullscreenOrientation;
+  final VoidCallback? onToggleFullscreenOrientation;
   final bool danmakuEnabled;
   final VoidCallback? onPrevious;
   final VoidCallback onPlayPause;
@@ -55,130 +59,197 @@ class PlayerControls extends StatelessWidget {
       ],
     );
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        metrics.leftPadding,
-        0,
-        metrics.rightPadding,
-        metrics.bottomPadding,
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: <Widget>[
-              Text(_formatDuration(state.position), style: timeStyle),
-              Text(_formatDuration(state.duration), style: timeStyle),
-            ],
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double controlsWidth =
+            constraints.maxWidth - metrics.leftPadding - metrics.rightPadding;
+        final bool splitCompactControls =
+            metrics.mode == PlayerViewMode.compact && controlsWidth < 308;
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            metrics.leftPadding,
+            0,
+            metrics.rightPadding,
+            metrics.bottomPadding,
           ),
-          SizedBox(
-            height: 44,
-            child: SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: metrics.progressHeight,
-                activeTrackColor: Colors.white,
-                inactiveTrackColor: Colors.white.withValues(alpha: 0.32),
-                thumbColor: Colors.white,
-                overlayColor: Colors.white.withValues(alpha: 0.12),
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-              ),
-              child: Slider(
-                key: const ValueKey<String>('video-progress'),
-                value: positionMs.toDouble(),
-                max: durationMs <= 0 ? 1 : durationMs.toDouble(),
-                onChangeStart: durationMs <= 0 ? null : (_) => onSeekStart(),
-                onChanged: durationMs <= 0 ? null : onSeek,
-                onChangeEnd: durationMs <= 0 ? null : (_) => onSeekEnd(),
-              ),
-            ),
-          ),
-          Row(
-            key: const ValueKey<String>('primary-controls-row'),
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               Row(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: <Widget>[
-                  _ControlHitTarget.icon(
-                    key: const ValueKey<String>('previous-episode'),
-                    semanticLabel: '上一集',
-                    icon: Icons.skip_previous,
-                    iconSize: metrics.iconSize,
-                    onPressed: onPrevious,
-                  ),
-                  _ControlHitTarget.icon(
-                    key: const ValueKey<String>('play-pause'),
-                    semanticLabel: state.isPlaying ? '暂停' : '播放',
-                    icon: state.isPlaying ? Icons.pause : Icons.play_arrow,
-                    iconSize: metrics.primaryIconSize,
-                    onPressed: onPlayPause,
-                  ),
-                  _ControlHitTarget.icon(
-                    key: const ValueKey<String>('next-episode'),
-                    semanticLabel: '下一集',
-                    icon: Icons.skip_next,
-                    iconSize: metrics.iconSize,
-                    onPressed: onNext,
-                  ),
+                  Text(_formatDuration(state.position), style: timeStyle),
+                  Text(_formatDuration(state.duration), style: timeStyle),
                 ],
               ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  if (hasEpisodes && metrics.showEpisodePicker)
-                    _ControlHitTarget.text(
-                      key: const ValueKey<String>('episode-picker'),
-                      semanticLabel: '打开选集',
-                      label: '选集',
-                      fontSize: _textSize,
-                      onPressed: onOpenEpisodes,
+              SizedBox(
+                height: 44,
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: metrics.progressHeight,
+                    activeTrackColor: Colors.white,
+                    inactiveTrackColor: Colors.white.withValues(alpha: 0.32),
+                    thumbColor: Colors.white,
+                    overlayColor: Colors.white.withValues(alpha: 0.12),
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 5,
                     ),
-                  _ControlHitTarget.icon(
-                    key: const ValueKey<String>('danmaku-toggle'),
-                    semanticLabel: danmakuEnabled ? '关闭弹幕' : '打开弹幕',
-                    icon: danmakuEnabled
-                        ? Icons.chat_bubble
-                        : Icons.chat_bubble_outline,
-                    iconSize: metrics.iconSize,
-                    color: danmakuEnabled ? const Color(0xFF7EC3FF) : null,
-                    toggled: danmakuEnabled,
-                    onPressed: onToggleDanmaku,
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 12,
+                    ),
                   ),
-                  _ControlHitTarget.text(
-                    key: const ValueKey<String>('speed-menu'),
-                    semanticLabel: '播放速度 ${_speedLabel(state.speed)}',
-                    label: _speedLabel(state.speed),
-                    fontSize: _textSize,
-                    onPressed: onOpenSpeed,
+                  child: Slider(
+                    key: const ValueKey<String>('video-progress'),
+                    value: positionMs.toDouble(),
+                    max: durationMs <= 0 ? 1 : durationMs.toDouble(),
+                    onChangeStart: durationMs <= 0
+                        ? null
+                        : (_) => onSeekStart(),
+                    onChanged: durationMs <= 0 ? null : onSeek,
+                    onChangeEnd: durationMs <= 0 ? null : (_) => onSeekEnd(),
                   ),
-                  if (metrics.showMore)
-                    _ControlHitTarget.icon(
-                      key: const ValueKey<String>('more-menu'),
-                      alternateKey: const ValueKey<String>('settings-menu'),
-                      semanticLabel: '更多设置',
-                      icon: Icons.more_horiz,
-                      iconSize: metrics.iconSize,
-                      onPressed: onOpenMore,
-                    ),
-                  if (showFullscreen)
-                    _ControlHitTarget.icon(
-                      key: const ValueKey<String>('fullscreen'),
-                      semanticLabel: state.fullscreen ? '退出全屏' : '进入全屏',
-                      icon: state.fullscreen
-                          ? Icons.fullscreen_exit
-                          : Icons.fullscreen,
-                      iconSize: metrics.iconSize,
-                      onPressed: onToggleFullscreen,
-                    ),
-                ],
+                ),
               ),
+              if (metrics.mode ==
+                  PlayerViewMode.portraitFullscreen) ...<Widget>[
+                _buildUtilityControls(
+                  key: const ValueKey<String>(
+                    'portrait-fullscreen-utility-row',
+                  ),
+                  expanded: true,
+                ),
+                _buildPlaybackControls(
+                  key: const ValueKey<String>(
+                    'portrait-fullscreen-playback-row',
+                  ),
+                  expanded: true,
+                ),
+              ] else if (splitCompactControls) ...<Widget>[
+                _buildUtilityControls(
+                  key: const ValueKey<String>('compact-utility-row'),
+                  expanded: true,
+                ),
+                _buildPlaybackControls(
+                  key: const ValueKey<String>('compact-playback-row'),
+                  expanded: true,
+                ),
+              ] else
+                Row(
+                  key: const ValueKey<String>('primary-controls-row'),
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[
+                    _buildPlaybackControls(),
+                    _buildUtilityControls(),
+                  ],
+                ),
             ],
           ),
-        ],
-      ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPlaybackControls({Key? key, bool expanded = false}) {
+    return Row(
+      key: key,
+      mainAxisSize: expanded ? MainAxisSize.max : MainAxisSize.min,
+      mainAxisAlignment: expanded
+          ? MainAxisAlignment.center
+          : MainAxisAlignment.start,
+      children: <Widget>[
+        _ControlHitTarget.icon(
+          key: const ValueKey<String>('previous-episode'),
+          semanticLabel: '上一集',
+          icon: Icons.skip_previous,
+          iconSize: metrics.iconSize,
+          onPressed: onPrevious,
+        ),
+        _ControlHitTarget.icon(
+          key: const ValueKey<String>('play-pause'),
+          semanticLabel: state.isPlaying ? '暂停' : '播放',
+          icon: state.isPlaying ? Icons.pause : Icons.play_arrow,
+          iconSize: metrics.primaryIconSize,
+          onPressed: onPlayPause,
+        ),
+        _ControlHitTarget.icon(
+          key: const ValueKey<String>('next-episode'),
+          semanticLabel: '下一集',
+          icon: Icons.skip_next,
+          iconSize: metrics.iconSize,
+          onPressed: onNext,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUtilityControls({Key? key, bool expanded = false}) {
+    return Row(
+      key: key,
+      mainAxisSize: expanded ? MainAxisSize.max : MainAxisSize.min,
+      mainAxisAlignment: expanded
+          ? MainAxisAlignment.center
+          : MainAxisAlignment.start,
+      children: <Widget>[
+        if (hasEpisodes && metrics.showEpisodePicker)
+          _ControlHitTarget.text(
+            key: const ValueKey<String>('episode-picker'),
+            semanticLabel: '打开选集',
+            label: '选集',
+            fontSize: _textSize,
+            onPressed: onOpenEpisodes,
+          ),
+        _ControlHitTarget.icon(
+          key: const ValueKey<String>('danmaku-toggle'),
+          semanticLabel: danmakuEnabled ? '关闭弹幕' : '打开弹幕',
+          icon: danmakuEnabled ? Icons.chat_bubble : Icons.chat_bubble_outline,
+          iconSize: metrics.iconSize,
+          color: danmakuEnabled ? const Color(0xFF7EC3FF) : null,
+          toggled: danmakuEnabled,
+          onPressed: onToggleDanmaku,
+        ),
+        _ControlHitTarget.text(
+          key: const ValueKey<String>('speed-menu'),
+          semanticLabel: '播放速度 ${_speedLabel(state.speed)}',
+          label: _speedLabel(state.speed),
+          fontSize: _textSize,
+          onPressed: onOpenSpeed,
+        ),
+        if (metrics.showMore)
+          _ControlHitTarget.icon(
+            key: const ValueKey<String>('more-menu'),
+            alternateKey: const ValueKey<String>('settings-menu'),
+            semanticLabel: '更多设置',
+            icon: Icons.more_horiz,
+            iconSize: metrics.iconSize,
+            onPressed: onOpenMore,
+          ),
+        if (onToggleFullscreenOrientation != null)
+          _ControlHitTarget.icon(
+            key: const ValueKey<String>('fullscreen-orientation-toggle'),
+            semanticLabel:
+                fullscreenOrientation ==
+                    UnifiedVideoFullscreenOrientation.portrait
+                ? '切换为横屏全屏'
+                : '切换为竖屏全屏',
+            icon:
+                fullscreenOrientation ==
+                    UnifiedVideoFullscreenOrientation.portrait
+                ? Icons.stay_current_landscape_rounded
+                : Icons.stay_current_portrait_rounded,
+            iconSize: metrics.iconSize,
+            onPressed: onToggleFullscreenOrientation,
+          ),
+        if (showFullscreen)
+          _ControlHitTarget.icon(
+            key: const ValueKey<String>('fullscreen'),
+            semanticLabel: state.fullscreen ? '退出全屏' : '进入全屏',
+            icon: state.fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+            iconSize: metrics.iconSize,
+            onPressed: onToggleFullscreen,
+          ),
+      ],
     );
   }
 

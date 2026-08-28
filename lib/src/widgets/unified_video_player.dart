@@ -23,6 +23,7 @@ class UnifiedVideoPlayer extends StatefulWidget {
     this.onNext,
     this.onSwitchContent,
     this.aspectRatio = 16 / 9,
+    this.fullscreenOrientation = UnifiedVideoFullscreenOrientation.landscape,
     this.autoHideControlsDelay = const Duration(seconds: 3),
   });
 
@@ -34,6 +35,7 @@ class UnifiedVideoPlayer extends StatefulWidget {
   final VoidCallback? onNext;
   final VoidCallback? onSwitchContent;
   final double aspectRatio;
+  final UnifiedVideoFullscreenOrientation fullscreenOrientation;
   final Duration autoHideControlsDelay;
 
   @override
@@ -47,6 +49,8 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
   );
   bool _fullscreenOverlayVisible = false;
   bool _fullscreenTransitioning = false;
+  bool _fullscreenOrientationTransitioning = false;
+  late UnifiedVideoFullscreenOrientation _activeFullscreenOrientation;
   String? _activeEpisodeId;
   String? _openingEpisodeId;
   int _episodeOperationGeneration = 0;
@@ -67,6 +71,7 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     _activeEpisodeId =
         _episodeWithId(widget.initialEpisodeId)?.id ??
         _episodeMatchingSource(widget.controller.value.source)?.id;
+    _activeFullscreenOrientation = _resolvedFullscreenOrientation();
     widget.controller.claimFullscreenOwnershipIfUnclaimed();
     widget.controller.addListener(_handleControllerFullscreenChanged);
   }
@@ -100,6 +105,11 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       if (_episodeWithId(_activeEpisodeId) == null) {
         _syncActiveEpisodeFromSource();
       }
+    }
+    if (!widget.controller.value.fullscreen &&
+        (oldWidget.fullscreenOrientation != widget.fullscreenOrientation ||
+            oldWidget.aspectRatio != widget.aspectRatio)) {
+      _activeFullscreenOrientation = _resolvedFullscreenOrientation();
     }
   }
 
@@ -152,6 +162,10 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       onNext: _nextEpisodeAction(),
       onSwitchContent: widget.onSwitchContent,
       onFullscreenPressed: _toggleFullscreen,
+      fullscreenOrientation: _activeFullscreenOrientation,
+      onFullscreenOrientationPressed: _isMobilePlatform
+          ? _toggleFullscreenOrientation
+          : null,
       autoHideControlsDelay: widget.autoHideControlsDelay,
     );
     if (expand) {
@@ -160,9 +174,31 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     return ValueListenableBuilder<UnifiedVideoState>(
       valueListenable: widget.controller,
       builder: (BuildContext context, UnifiedVideoState state, Widget? child) {
-        return AspectRatio(
+        final Widget aspectRatioPlayer = AspectRatio(
           aspectRatio: _playerAspectRatio(widget.aspectRatio, state.fit),
           child: child,
+        );
+        return LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            if (constraints.hasBoundedHeight) {
+              return aspectRatioPlayer;
+            }
+            final MediaQueryData mediaQuery = MediaQuery.of(context);
+            final double safeScreenHeight = math.max(
+              0,
+              mediaQuery.size.height - mediaQuery.viewPadding.vertical,
+            );
+            if (safeScreenHeight == 0) {
+              return aspectRatioPlayer;
+            }
+            return Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: safeScreenHeight),
+                child: aspectRatioPlayer,
+              ),
+            );
+          },
         );
       },
       child: playerView,
@@ -231,7 +267,15 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
   }
 
   Future<void> _enterFullscreen() async {
-    await widget.controller.enterFullscreen(syncPlatform: false);
+    final UnifiedVideoFullscreenOrientation orientation =
+        _resolvedFullscreenOrientation();
+    if (_activeFullscreenOrientation != orientation) {
+      setState(() => _activeFullscreenOrientation = orientation);
+    }
+    await widget.controller.enterFullscreen(
+      syncPlatform: false,
+      orientation: orientation,
+    );
     if (!mounted) {
       return;
     }
@@ -239,7 +283,7 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
     _fullscreenPortal.show();
     await WidgetsBinding.instance.endOfFrame;
     try {
-      await widget.controller.syncFullscreenPlatform();
+      await widget.controller.syncFullscreenPlatform(orientation: orientation);
     } catch (_) {
       await widget.controller.exitFullscreen(syncPlatform: false);
       if (mounted) {
@@ -249,6 +293,46 @@ class _UnifiedVideoPlayerState extends State<UnifiedVideoPlayer> {
       rethrow;
     }
   }
+
+  Future<void> _toggleFullscreenOrientation() async {
+    if (_fullscreenOrientationTransitioning ||
+        !widget.controller.value.fullscreen ||
+        !_isMobilePlatform) {
+      return;
+    }
+    _fullscreenOrientationTransitioning = true;
+    final UnifiedVideoFullscreenOrientation previous =
+        _activeFullscreenOrientation;
+    final UnifiedVideoFullscreenOrientation next =
+        previous == UnifiedVideoFullscreenOrientation.portrait
+        ? UnifiedVideoFullscreenOrientation.landscape
+        : UnifiedVideoFullscreenOrientation.portrait;
+    setState(() => _activeFullscreenOrientation = next);
+    try {
+      await widget.controller.syncFullscreenPlatform(orientation: next);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _activeFullscreenOrientation = previous);
+      }
+      rethrow;
+    } finally {
+      _fullscreenOrientationTransitioning = false;
+    }
+  }
+
+  UnifiedVideoFullscreenOrientation _resolvedFullscreenOrientation() {
+    if (widget.fullscreenOrientation !=
+        UnifiedVideoFullscreenOrientation.auto) {
+      return widget.fullscreenOrientation;
+    }
+    return widget.aspectRatio < 1
+        ? UnifiedVideoFullscreenOrientation.portrait
+        : UnifiedVideoFullscreenOrientation.landscape;
+  }
+
+  bool get _isMobilePlatform =>
+      widget.controller.platform == UnifiedVideoPlatform.android ||
+      widget.controller.platform == UnifiedVideoPlatform.ios;
 
   Future<void> _exitFullscreen() async {
     await widget.controller.exitFullscreen(syncPlatform: false);
@@ -470,6 +554,8 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
     required this.onNext,
     required this.onSwitchContent,
     required this.onFullscreenPressed,
+    required this.fullscreenOrientation,
+    required this.onFullscreenOrientationPressed,
     required this.autoHideControlsDelay,
   });
 
@@ -482,6 +568,8 @@ class _UnifiedVideoPlayerView extends StatefulWidget {
   final VoidCallback? onNext;
   final VoidCallback? onSwitchContent;
   final Future<void> Function() onFullscreenPressed;
+  final UnifiedVideoFullscreenOrientation fullscreenOrientation;
+  final Future<void> Function()? onFullscreenOrientationPressed;
   final Duration autoHideControlsDelay;
 
   @override
@@ -1029,6 +1117,13 @@ class _UnifiedVideoPlayerViewState extends State<_UnifiedVideoPlayerView>
                                         metrics: metrics,
                                         hasEpisodes: widget.episodes.isNotEmpty,
                                         showFullscreen: !showFullscreenEscape,
+                                        fullscreenOrientation:
+                                            widget.fullscreenOrientation,
+                                        onToggleFullscreenOrientation:
+                                            state.fullscreen
+                                            ? widget
+                                                  .onFullscreenOrientationPressed
+                                            : null,
                                         danmakuEnabled: _danmakuEnabled,
                                         onPrevious: widget.onPrevious,
                                         onPlayPause: () {
@@ -1357,31 +1452,9 @@ class _VideoSurface extends StatelessWidget {
             : 1,
         child: adapter == null
             ? const SizedBox.expand()
-            : FittedBox(
-                fit: _boxFitFor(state.fit),
-                clipBehavior: Clip.hardEdge,
-                child: SizedBox(
-                  width: 1280,
-                  height: 720,
-                  child: adapter.buildSurface(context, state),
-                ),
-              ),
+            : SizedBox.expand(child: adapter.buildSurface(context, state)),
       ),
     );
-  }
-
-  BoxFit _boxFitFor(UnifiedVideoFit fit) {
-    switch (fit) {
-      case UnifiedVideoFit.original:
-      case UnifiedVideoFit.contain:
-      case UnifiedVideoFit.ratio16x9:
-      case UnifiedVideoFit.ratio4x3:
-        return BoxFit.contain;
-      case UnifiedVideoFit.fill:
-        return BoxFit.fill;
-      case UnifiedVideoFit.cover:
-        return BoxFit.cover;
-    }
   }
 }
 
